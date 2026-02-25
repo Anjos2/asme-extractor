@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-mini}
+      PDF_DPI: ${PDF_DPI:-200}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    volumes:
+      - ./frontend:/frontend
+    depends_on:
+      db:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.asme.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.asme.entrypoints=websecure"
+      - "traefik.http.routers.asme.tls.certresolver=letsencrypt"
+      - "traefik.http.services.asme.loadbalancer.server.port=8000"
+    networks:
+      - internal
+      - traefik-public
+
+volumes:
+  pgdata:
+
+networks:
+  internal:
+  traefik-public:
+    external: true
