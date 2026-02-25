@@ -16,7 +16,7 @@ services:
       - internal
 
   backend:
-    build: ./backend
+    image: asme-backend:latest
     environment:
       DATABASE_URL: postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
@@ -25,23 +25,21 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
     volumes:
       - ./frontend:/frontend
-    depends_on:
-      db:
-        condition: service_healthy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.asme.rule=Host(`${DOMAIN}`)"
-      - "traefik.http.routers.asme.entrypoints=websecure"
-      - "traefik.http.routers.asme.tls.certresolver=letsencrypt"
-      - "traefik.http.services.asme.loadbalancer.server.port=8000"
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.asme.rule=Host(`${DOMAIN}`)"
+        - "traefik.http.routers.asme.entrypoints=websecure"
+        - "traefik.http.routers.asme.tls.certresolver=letsencrypt"
+        - "traefik.http.services.asme.loadbalancer.server.port=8000"
     networks:
       - internal
-      - traefik-public
+      - dokploy-network
 
 volumes:
   pgdata:
 
 networks:
   internal:
-  traefik-public:
+  dokploy-network:
     external: true
