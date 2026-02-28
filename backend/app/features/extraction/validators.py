@@ -78,7 +78,9 @@ def validate_pdf_type(pdf_bytes: bytes, expected_type: str) -> None:
 def find_u1a_page(pdf_bytes: bytes) -> int | None:
     """Busca la pagina que contiene el FORM U-1A embebido en PDFs tipo 2.
 
-    Busca desde la pagina 5 en adelante para evitar falsos positivos.
+    Busca desde la pagina 5 en adelante. Requiere que la pagina contenga
+    campos reales del formulario (MAWP, SHELL, HEADS) para evitar falsos
+    positivos con paginas que solo mencionan "Form U-1A" como referencia textual.
 
     Returns:
         Numero de pagina (0-indexed) o None si no se encuentra.
@@ -86,6 +88,8 @@ def find_u1a_page(pdf_bytes: bytes) -> int | None:
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         for i in range(min(5, len(pdf.pages)), len(pdf.pages)):
             text = (pdf.pages[i].extract_text() or "").upper()
-            if "FORM U-1A" in text or "MANUFACTURER'S DATA REPORT" in text:
+            has_u1a_header = "FORM U-1A" in text or "MANUFACTURER'S DATA REPORT" in text
+            has_form_fields = "MAWP" in text or "SHELL:" in text or "HEADS:" in text
+            if has_u1a_header and has_form_fields:
                 return i
     return None

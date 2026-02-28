@@ -29,12 +29,16 @@ def _get_pages_for_type1() -> list[int]:
 
 
 def _get_pages_for_type2(pdf_bytes: bytes) -> list[int]:
-    """Paginas a convertir para Type 2: pag 2 (datos) + U-1A embebido."""
+    """Paginas a convertir para Type 2: pag 2 (datos) + U-1A front + U-1A back."""
     pages = [1]  # Pagina 2 = index 1 (DATOS DEL PRODUCTO)
     u1a_page = find_u1a_page(pdf_bytes)
     if u1a_page is not None:
-        pages.append(u1a_page)
-        logger.info("U-1A embebido encontrado en pagina %d", u1a_page + 1)
+        pages.append(u1a_page)          # U-1A front (datos del recipiente)
+        pages.append(u1a_page + 1)      # U-1A back (CERTIFICATE OF COMPLIANCE + fecha)
+        logger.info(
+            "U-1A embebido encontrado en paginas %d-%d",
+            u1a_page + 1, u1a_page + 2,
+        )
     else:
         logger.warning("No se encontro U-1A embebido en el PDF tipo 2")
     return pages
