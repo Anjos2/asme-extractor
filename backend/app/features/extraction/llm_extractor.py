@@ -74,12 +74,23 @@ async def extract_with_llm(
     response = await client.chat.completions.create(
         model=settings.OPENAI_MODEL,
         messages=messages,
-        max_tokens=2000,
-        temperature=0,
+        max_completion_tokens=settings.OPENAI_MAX_TOKENS,
     )
 
-    raw_content = response.choices[0].message.content
-    logger.info("LLM raw response length: %d chars", len(raw_content))
+    choice = response.choices[0]
+    raw_content = choice.message.content or ""
+    logger.info(
+        "LLM response: %d chars, finish_reason=%s, usage=%s",
+        len(raw_content),
+        choice.finish_reason,
+        response.usage,
+    )
+
+    if not raw_content:
+        logger.error("LLM returned empty response (finish_reason=%s)", choice.finish_reason)
+        return ExtractionResult(
+            warnings=[f"LLM devolvió respuesta vacía (finish_reason={choice.finish_reason}). Reintentar."]
+        )
 
     clean_json = _clean_json_response(raw_content)
 

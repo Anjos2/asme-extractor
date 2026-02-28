@@ -27,7 +27,7 @@ CAMPOS A EXTRAER:
 - diametro_interior_m: Diametro INTERIOR del recipiente. Si esta en pulgadas, convertir a metros (1 in = 0.0254 m)
 - material_cabezales: Material de los cabezales/heads (ej: "SA-516 GR.70")
 - espesor_cabezales_mm: Espesor de los cabezales/heads. Si esta en pulgadas, convertir a mm
-- fecha_certificacion: Fecha de certificacion en formato YYYY-MM-DD
+- fecha_certificacion: Fecha de certificacion del FABRICANTE (Date en CERTIFICATE OF COMPLIANCE, NO la fecha del inspector) en formato YYYY-MM-DD
 - serial_number: Numero(s) de serie del fabricante
 - vessel_type: "Horizontal" o "Vertical"
 
@@ -64,7 +64,7 @@ CAMPOS A EXTRAER:
 - diametro_interior_m: Diametro INTERIOR en metros. Buscar en U-1A embebido si no esta en pagina de datos. Si esta en pulgadas, convertir (1 in = 0.0254 m). IMPORTANTE: Necesitamos diametro INTERIOR, no exterior
 - material_cabezales: Material de los cabezales/heads
 - espesor_cabezales_mm: Espesor de los cabezales en mm
-- fecha_certificacion: Fecha de certificacion en formato YYYY-MM-DD
+- fecha_certificacion: Fecha de certificacion del FABRICANTE (Date en CERTIFICATE OF COMPLIANCE, NO la fecha del inspector) en formato YYYY-MM-DD
 - serial_number: Numero(s) de serie del fabricante
 - vessel_type: "Horizontal" o "Vertical"
 

@@ -68,6 +68,8 @@ async def list_all_records(
     db: AsyncSession = Depends(get_db),
 ):
     """Lista registros paginados."""
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
     records, total = await list_records(db, limit=limit, offset=offset)
     return RecordListResponse(
         records=[RecordResponse.model_validate(r) for r in records],

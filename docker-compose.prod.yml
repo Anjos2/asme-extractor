@@ -31,7 +31,10 @@ services:
         - "traefik.http.routers.asme.rule=Host(`${DOMAIN}`)"
         - "traefik.http.routers.asme.entrypoints=websecure"
         - "traefik.http.routers.asme.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.asme-http.rule=Host(`${DOMAIN}`)"
+        - "traefik.http.routers.asme-http.entrypoints=web"
         - "traefik.http.services.asme.loadbalancer.server.port=8000"
+        - "traefik.docker.network=dokploy-network"
     networks:
       - internal
       - dokploy-network
