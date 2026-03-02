@@ -11,7 +11,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ASME Pressure Vessel Data Extractor</title>
+    <title>Extractor ASME - Vision Artificial</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #1a1a2e; min-height: 100vh; }
@@ -129,8 +129,8 @@
 </head>
 <body>
     <div class="header">
-        <h1>ASME Pressure Vessel Data Extractor</h1>
-        <p>Extraiga datos de certificados ASME y guardelos en Glide</p>
+        <h1>Extractor de Datos ASME</h1>
+        <p>Extraccion automatica de certificados ASME mediante Vision Artificial (IA)</p>
     </div>
 
     <div class="container">
@@ -145,7 +145,7 @@
             <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
                 <div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
                 <h3>Arrastra tu PDF aqui o haz clic para seleccionar</h3>
-                <p>Tipos aceptados: Formulario U-1A, Certificado de Inspeccion<br>Deteccion automatica del tipo de documento</p>
+                <p>Tipos aceptados: Formulario U-1A, Certificado de Inspeccion<br>La Vision Artificial detecta automaticamente el tipo de documento</p>
                 <input type="file" id="file-input" accept=".pdf">
                 <div class="status-msg" id="upload-status"></div>
             </div>
@@ -157,7 +157,7 @@
             </div>
 
             <div class="form-section" id="form-section">
-                <h2>Datos Extraidos</h2>
+                <h2>Datos Extraidos por Vision Artificial</h2>
                 <div class="form-meta" id="form-meta"></div>
 
                 <div class="duplicate-warning" id="duplicate-warning">
@@ -293,7 +293,7 @@
             const formData = new FormData();
             formData.append('file', file);
 
-            setTimeout(() => { label.textContent = 'Extrayendo datos con Vision AI...'; fill.style.width = '50%'; }, 2000);
+            setTimeout(() => { label.textContent = 'Extrayendo datos con Vision Artificial...'; fill.style.width = '50%'; }, 2000);
             setTimeout(() => { fill.style.width = '70%'; }, 5000);
 
             try {
@@ -325,7 +325,7 @@
             const extraction = data.extraction || {};
 
             const meta = document.getElementById('form-meta');
-            const typeLabel = data.pdf_type === 'TYPE_1' ? 'U-1A' : 'Cert. Inspeccion';
+            const typeLabel = data.pdf_type === 'TYPE_1' ? 'Formulario U-1A' : 'Certificado de Inspeccion';
             const badgeClass = data.pdf_type === 'TYPE_1' ? 'type1' : 'type2';
             meta.innerHTML = '<span class="badge ' + badgeClass + '">' + esc(typeLabel) + '</span> ' + esc(data.filename);
 
@@ -485,7 +485,7 @@
                 if (!res.ok) throw new Error('Error al cargar tanques');
 
                 if (tanques.length === 0) {
-                    container.innerHTML = '<div class="empty-state">No hay tanques pendientes de datos LIBRO DIGITAL</div>';
+                    container.innerHTML = '<div class="empty-state">Todos los tanques ya tienen datos de LIBRO DIGITAL</div>';
                     return;
                 }
 
@@ -542,7 +542,7 @@
                 if (!res.ok) throw new Error(data.detail || 'Error en batch');
 
                 const totalPdfs = data.total_pdfs || 0;
-                showToast('Se encontraron ' + totalPdfs + ' PDFs para procesar. Procesamiento individual disponible via Tab "Subir PDF".', totalPdfs > 0 ? 'success' : 'error');
+                showToast('Se encontraron ' + totalPdfs + ' PDFs para procesar.', totalPdfs > 0 ? 'success' : 'error');
             } catch (err) {
                 showToast('Error: ' + err.message, 'error');
             } finally {
