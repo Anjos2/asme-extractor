@@ -125,9 +125,8 @@ async def query_table(
     if not settings.GLIDE_APP_ID or not settings.GLIDE_API_TOKEN:
         raise RuntimeError("GLIDE_APP_ID y GLIDE_API_TOKEN deben estar configurados")
 
-    query: dict[str, Any] = {"tableName": table_id, "utc": utc}
-    if sql:
-        query["sql"] = sql
+    effective_sql = sql or f'SELECT * FROM "{table_id}"'
+    query: dict[str, Any] = {"tableName": table_id, "sql": effective_sql, "utc": utc}
     if params:
         query["params"] = params
 

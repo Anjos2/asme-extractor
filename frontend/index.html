@@ -185,7 +185,10 @@
             <div class="batch-list">
                 <h2>Tanques pendientes de datos LIBRO DIGITAL</h2>
                 <div id="batch-content">
-                    <div class="empty-state">Cargando...</div>
+                    <div class="empty-state">Haz clic en "Cargar tanques" para consultar Glide</div>
+                </div>
+                <div style="text-align:center;margin:16px 0;" id="batch-load-wrapper">
+                    <button class="btn btn-primary" onclick="loadPendingTanques()">Cargar tanques</button>
                 </div>
                 <div class="batch-actions" id="batch-actions" style="display:none;">
                     <div class="batch-count" id="batch-count">0 seleccionados</div>
@@ -242,7 +245,7 @@
             document.getElementById('tab-single').style.display = tab === 'single' ? 'block' : 'none';
             document.getElementById('tab-batch').style.display = tab === 'batch' ? 'block' : 'none';
             document.getElementById('tab-batch').classList.toggle('visible', tab === 'batch');
-            if (tab === 'batch') loadPendingTanques();
+            // No auto-load: el usuario hace clic en "Cargar tanques" para consultar Glide
         }
 
         /* ── Upload zone ── */
@@ -470,8 +473,10 @@
         async function loadPendingTanques() {
             const container = document.getElementById('batch-content');
             const actions = document.getElementById('batch-actions');
+            const loadWrapper = document.getElementById('batch-load-wrapper');
             container.innerHTML = '<div class="empty-state">Cargando tanques pendientes...</div>';
             actions.style.display = 'none';
+            loadWrapper.style.display = 'none';
 
             try {
                 const res = await fetch(API + '/api/tanques/pendientes');
@@ -503,6 +508,7 @@
                 updateBatchCount();
             } catch (err) {
                 container.innerHTML = '<div class="empty-state">Error al cargar tanques: ' + esc(err.message) + '</div>';
+                loadWrapper.style.display = 'block';
             }
         }
 
