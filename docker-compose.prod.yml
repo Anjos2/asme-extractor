@@ -10,9 +10,9 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-mini}
       PDF_DPI: ${PDF_DPI:-200}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      GLIDE_APP_ID: ${GLIDE_APP_ID}
     secrets:
       - openai_api_key
-      - glide_app_id
       - glide_api_token
     volumes:
       - ./frontend:/frontend
@@ -31,8 +31,6 @@ services:
 
 secrets:
   openai_api_key:
-    external: true
-  glide_app_id:
     external: true
   glide_api_token:
     external: true
