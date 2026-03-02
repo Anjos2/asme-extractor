@@ -30,11 +30,11 @@ async def get_tanque_by_serie(serie: str) -> dict | None:
     Returns:
         Dict con nombres legibles + row_id, o None si no existe.
     """
-    sql = f'SELECT * FROM "{TABLE_TANQUES}" WHERE "Name" = $1 LIMIT 1'
-    rows = await query_table(TABLE_TANQUES, sql=sql, params=[serie])
-    if not rows:
-        return None
-    return from_glide_columns(rows[0], _TANQUE_COLUMNS_INV)
+    rows = await query_table(TABLE_TANQUES)
+    for row in rows:
+        if row.get("Name") == serie:
+            return from_glide_columns(row, _TANQUE_COLUMNS_INV)
+    return None
 
 
 async def create_tanque(data: dict) -> str:
@@ -124,9 +124,9 @@ async def get_documentos_by_tanque(tanque_row_id: str) -> list[dict]:
         Lista de dicts con pdf_urls y row_id.
     """
     col_fk = DOCUMENTO_COLUMNS["tanque_row_id"]
-    sql = f'SELECT * FROM "{TABLE_DOCUMENTOS}" WHERE "{col_fk}" = $1'
-    rows = await query_table(TABLE_DOCUMENTOS, sql=sql, params=[tanque_row_id])
-    return [from_glide_columns(row, _DOCUMENTO_COLUMNS_INV) for row in rows]
+    rows = await query_table(TABLE_DOCUMENTOS)
+    filtered = [row for row in rows if row.get(col_fk) == tanque_row_id]
+    return [from_glide_columns(row, _DOCUMENTO_COLUMNS_INV) for row in filtered]
 
 
 async def get_all_documentos() -> list[dict]:

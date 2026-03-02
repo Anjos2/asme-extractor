@@ -105,18 +105,14 @@ async def _post_with_retry(endpoint: str, payload: dict) -> dict:
     raise RuntimeError(f"Glide API failed after {MAX_RETRIES} retries: {last_error}")
 
 
-async def query_table(
-    table_id: str,
-    sql: str | None = None,
-    params: list | None = None,
-    utc: bool = True,
-) -> list[dict]:
-    """Consulta rows de una tabla en Glide.
+async def query_table(table_id: str, utc: bool = True) -> list[dict]:
+    """Consulta TODAS las rows de una tabla en Glide (sin SQL).
+
+    Las native tables de Glide no soportan SQL — se obtienen todos los rows
+    y se filtra en Python (repository.py). Soporta paginacion automatica.
 
     Args:
         table_id: ID de la tabla Glide (ej: native-table-xxx).
-        sql: SQL opcional (SELECT * FROM "table" WHERE ...).
-        params: Parametros para placeholders $1, $2, etc.
         utc: Si True, fechas en UTC.
 
     Returns:
@@ -125,10 +121,7 @@ async def query_table(
     if not settings.GLIDE_APP_ID or not settings.GLIDE_API_TOKEN:
         raise RuntimeError("GLIDE_APP_ID y GLIDE_API_TOKEN deben estar configurados")
 
-    effective_sql = sql or f'SELECT * FROM "{table_id}"'
-    query: dict[str, Any] = {"tableName": table_id, "sql": effective_sql, "utc": utc}
-    if params:
-        query["params"] = params
+    query: dict[str, Any] = {"tableName": table_id, "utc": utc}
 
     all_rows: list[dict] = []
     continuation_token = None
