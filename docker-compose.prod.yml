@@ -1,28 +1,13 @@
 services:
-  db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - internal
-
   backend:
     image: asme-backend:latest
     environment:
-      DATABASE_URL: postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-mini}
       PDF_DPI: ${PDF_DPI:-200}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      GLIDE_APP_ID: ${GLIDE_APP_ID}
+      GLIDE_API_TOKEN: ${GLIDE_API_TOKEN}
     volumes:
       - ./frontend:/frontend
     deploy:
@@ -36,13 +21,8 @@ services:
         - "traefik.http.services.asme.loadbalancer.server.port=8000"
         - "traefik.docker.network=dokploy-network"
     networks:
-      - internal
       - dokploy-network
 
-volumes:
-  pgdata:
-
 networks:
-  internal:
   dokploy-network:
     external: true

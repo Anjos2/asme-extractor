@@ -1,8 +1,8 @@
 """
 Punto de entrada de la aplicacion FastAPI.
-- Finalidad: Configura app, registra routers, sirve frontend, maneja lifecycle
-- Consume: config.py, database.py, router.py
-- Consumido por: Dockerfile (uvicorn), docker-compose
+- Finalidad: Configura app, registra routers, sirve frontend, maneja lifecycle.
+- Consume: config.py (settings), features/extraction/router.py (endpoints API)
+- Consumido por: Dockerfile (uvicorn app.main:app), docker-compose
 """
 
 import logging
@@ -16,7 +16,6 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
-from app.database import init_db
 from app.features.extraction.router import router as extraction_router
 
 logging.basicConfig(
@@ -29,9 +28,7 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Initializing database...")
-    await init_db()
-    logger.info("Database ready")
+    logger.info("ASME Extractor v%s starting...", settings.APP_VERSION)
     yield
     logger.info("Shutting down")
 

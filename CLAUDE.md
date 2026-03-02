@@ -14,13 +14,21 @@ Aplicas: **SOLID, DRY, KISS, YAGNI**.
 
 ```
 memoria/
-├── arquitectura.yaml     # Stack, datos, relaciones, tools del agente
-├── servidor.yaml         # Infra, Docker, redes, IPs, tokens
-├── openai_agents_sdk.yaml # SDK 0.8.0, tools, hooks, sessions
-└── negocio.yaml          # Referencia del proyecto Loc Studio
+├── arquitectura.yaml          # Stack, datos, relaciones, tools del agente
+├── servidor.yaml              # Infra, Docker, redes, IPs, tokens
+├── openai_agents_sdk.yaml     # SDK 0.8.0, tools, hooks, sessions
+├── negocio.yaml               # Referencia del proyecto Loc Studio
+├── checklist-refactoring.md   # CHECKLIST ACTIVO: Refactoring Glide + Nuevo UX
+└── diagrama.html              # Diagrama visual interactivo de arquitectura
 ```
 
 **Siempre leer la memoria primero. La fuente de verdad está en estos archivos.**
+
+### Checklists de Desarrollo
+- **Todo desarrollo multi-paso** tiene un checklist en `memoria/checklist-*.md`
+- Al inicio de cada sesión: **leer el checklist activo** para saber dónde se quedó
+- Marcar `[x]` conforme se completa cada paso
+- El checklist es la fuente de verdad del progreso del desarrollo
 
 ---
 
@@ -37,12 +45,14 @@ memoria/
 ### Sub-proyecto 2: ASME Pressure Vessel Extractor
 **App web para extraer datos de PDFs ASME de recipientes a presión.**
 - **Cliente**: VeaHome / Corporación Primax
-- **Función**: Upload PDF → Vision AI extrae 11 campos → PostgreSQL
-- **Stack**: Python 3.13 + FastAPI + GPT-4o vision | HTML/CSS/JS vanilla
-- **BD**: PostgreSQL 17 (Docker)
+- **Función**: Upload PDF → Vision AI extrae 12 campos → Glide API
+- **Stack**: Python 3.13 + FastAPI + gpt-5-mini vision | HTML/CSS/JS vanilla
+- **BD**: ~~PostgreSQL 17~~ → **Glide API** (HTTP REST) — refactoring en curso
 - **2 tipos de PDF**: Type 1 (U-1A directo, imperial) y Type 2 (Certificado de Inspección, métrico + U-1A embebido)
+- **Auto-detect**: ya no requiere que el usuario elija tipo manualmente
 - **Embebible en Glide** via iframe
 - **Estructura**: `backend/` (FastAPI) + `frontend/` (index.html) + Docker Compose
+- **Progreso refactoring**: ver `memoria/checklist-refactoring.md`
 
 ---
 

@@ -56,7 +56,7 @@ def _clean_json_response(text: str) -> str:
 async def extract_with_llm(
     images_b64: list[str], pdf_type: str
 ) -> ExtractionResult:
-    """Envia imagenes a GPT-4o y retorna datos estructurados.
+    """Envia imagenes al LLM vision y retorna datos estructurados.
 
     Args:
         images_b64: Lista de imagenes en base64.
@@ -104,7 +104,7 @@ async def extract_with_llm(
 
     warnings = []
     expected_fields = [
-        "fabricante", "asme_code_edition", "mawp_psi",
+        "fabricante", "ano_fabricacion", "asme_code_edition", "mawp_psi",
         "hydro_test_pressure_psi", "material_cuerpo", "espesor_cuerpo_mm",
         "longitud_cuerpo_m", "diametro_interior_m", "material_cabezales",
         "espesor_cabezales_mm", "fecha_certificacion",

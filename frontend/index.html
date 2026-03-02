@@ -1,8 +1,9 @@
 <!--
-  Frontend completo del ASME Pressure Vessel Extractor.
-  - Finalidad: Dual upload zone (Type1/Type2) con drag&drop, muestra 11 campos
-    extraidos con warnings, historial paginado con eliminacion. Embebible en iframe.
-  - Consume: API backend (POST /api/upload, GET /api/records, DELETE /api/records/{id})
+  Frontend del ASME Pressure Vessel Data Extractor v2.
+  - Finalidad: Zona unica de upload con auto-detect, formulario editable,
+    confirmacion antes de guardar en Glide, tab batch para procesar desde Glide.
+  - Consume: API backend (POST /api/extract, POST /api/save, GET /api/tanques,
+    GET /api/tanques/pendientes, POST /api/batch/process)
   - Consumido por: main.py (servido como static file), Glide (via iframe)
 -->
 <!DOCTYPE html>
@@ -10,7 +11,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Extractor de Datos ASME</title>
+    <title>ASME Pressure Vessel Data Extractor</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #1a1a2e; min-height: 100vh; }
@@ -19,70 +20,108 @@
         .header h1 { font-size: 1.4rem; font-weight: 600; }
         .header p { font-size: 0.85rem; opacity: 0.7; margin-top: 4px; }
 
-        .container { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+        .container { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
 
-        .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 32px; }
+        /* Tabs */
+        .tabs { display: flex; gap: 0; margin-bottom: 24px; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .tab { flex: 1; padding: 14px 20px; text-align: center; cursor: pointer; font-size: 0.9rem; font-weight: 500; color: #64748b; border-bottom: 3px solid transparent; transition: all 0.2s; }
+        .tab:hover { color: #1e293b; background: #f8fafc; }
+        .tab.active { color: #3b82f6; border-bottom-color: #3b82f6; background: #f8fafc; }
 
+        /* Upload zone */
         .upload-zone {
-            border: 2px dashed #cbd5e1; border-radius: 12px; padding: 32px 24px;
+            border: 2px dashed #cbd5e1; border-radius: 12px; padding: 40px 24px;
             text-align: center; cursor: pointer; transition: all 0.2s;
             background: white; position: relative;
         }
         .upload-zone:hover { border-color: #3b82f6; background: #f8fafc; }
-        .upload-zone.dragover { border-color: #3b82f6; background: #eff6ff; transform: scale(1.01); }
-        .upload-zone.processing { border-color: #f59e0b; background: #fffbeb; pointer-events: none; }
-        .upload-zone.error { border-color: #ef4444; background: #fef2f2; }
-
+        .upload-zone.dragover { border-color: #3b82f6; background: #eff6ff; transform: scale(1.005); }
+        .upload-zone.disabled { pointer-events: none; opacity: 0.5; }
         .upload-zone .icon { margin-bottom: 12px; display: flex; justify-content: center; }
         .upload-zone .icon svg { width: 48px; height: 48px; }
         .upload-zone h3 { font-size: 1rem; margin-bottom: 6px; color: #1e293b; }
         .upload-zone p { font-size: 0.8rem; color: #64748b; }
         .upload-zone input { display: none; }
 
-        .spinner { display: none; margin: 12px auto; width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top: 3px solid #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; }
-        .processing .spinner { display: block; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        /* Progress bar */
+        .progress-section { display: none; background: white; border-radius: 12px; padding: 24px; margin-top: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .progress-section.visible { display: block; }
+        .progress-bar-bg { height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; margin: 12px 0; }
+        .progress-bar-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #6366f1); border-radius: 3px; transition: width 0.5s ease; width: 0%; }
+        .progress-label { font-size: 0.85rem; color: #475569; }
+        .progress-time { font-size: 0.75rem; color: #94a3b8; margin-top: 4px; }
 
-        .status-msg { margin-top: 10px; font-size: 0.8rem; font-weight: 500; }
-        .status-msg.success { color: #16a34a; }
-        .status-msg.error { color: #dc2626; }
+        /* Extraction form */
+        .form-section { display: none; background: white; border-radius: 12px; padding: 24px; margin-top: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .form-section.visible { display: block; }
+        .form-section h2 { font-size: 1.1rem; margin-bottom: 4px; color: #1e293b; }
+        .form-meta { font-size: 0.8rem; color: #64748b; margin-bottom: 16px; }
+        .form-meta .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 600; }
+        .form-meta .badge.type1 { background: #dbeafe; color: #1e40af; }
+        .form-meta .badge.type2 { background: #fce7f3; color: #9d174d; }
 
-        .result-panel {
-            background: white; border-radius: 12px; padding: 24px;
-            margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: none;
-        }
-        .result-panel.visible { display: block; }
-        .result-panel h2 { font-size: 1.1rem; margin-bottom: 16px; color: #1e293b; }
+        .duplicate-warning { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; display: none; }
+        .duplicate-warning.visible { display: block; }
+        .duplicate-warning .dw-title { font-size: 0.85rem; font-weight: 600; color: #92400e; margin-bottom: 6px; }
+        .duplicate-warning .dw-actions { margin-top: 10px; display: flex; gap: 8px; }
 
-        .result-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-        .result-field { background: #f8fafc; border-radius: 8px; padding: 12px 16px; border-left: 3px solid #3b82f6; }
-        .result-field.warning { border-left-color: #f59e0b; background: #fffbeb; }
-        .result-field label { display: block; font-size: 0.7rem; text-transform: uppercase; color: #64748b; font-weight: 600; letter-spacing: 0.5px; }
-        .result-field .value { font-size: 0.95rem; font-weight: 500; margin-top: 2px; color: #1e293b; }
-        .result-field .raw { font-size: 0.7rem; color: #94a3b8; margin-top: 2px; }
+        .warnings-bar { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 0.8rem; color: #92400e; display: none; }
+        .warnings-bar.visible { display: block; }
 
-        .warnings-bar { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 0.8rem; color: #92400e; }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+        .form-field { position: relative; }
+        .form-field label { display: block; font-size: 0.7rem; text-transform: uppercase; color: #64748b; font-weight: 600; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .form-field input { width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; color: #1e293b; transition: border-color 0.2s; background: white; }
+        .form-field input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+        .form-field input.locked { background: #f1f5f9; color: #475569; }
+        .form-field .raw-hint { font-size: 0.65rem; color: #94a3b8; margin-top: 2px; }
+        .form-field.warning input { border-color: #f59e0b; }
 
-        .history-section { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-        .history-section h2 { font-size: 1.1rem; margin-bottom: 16px; color: #1e293b; }
+        .form-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
+
+        .btn { padding: 10px 20px; border-radius: 8px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; border: none; }
+        .btn-primary { background: #3b82f6; color: white; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+        .btn-secondary { background: #f1f5f9; color: #475569; }
+        .btn-secondary:hover { background: #e2e8f0; }
+        .btn-warning { background: #f59e0b; color: white; }
+        .btn-warning:hover { background: #d97706; }
+        .btn-sm { padding: 6px 14px; font-size: 0.75rem; }
+
+        /* Batch tab */
+        .batch-section { display: none; }
+        .batch-section.visible { display: block; }
+        .batch-list { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .batch-list h2 { font-size: 1.1rem; margin-bottom: 16px; color: #1e293b; }
 
         table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
         th { text-align: left; padding: 10px 12px; background: #f1f5f9; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.5px; }
         td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #334155; }
         tr:hover td { background: #f8fafc; }
+        .cb-cell { width: 40px; text-align: center; }
+        .cb-cell input { width: 16px; height: 16px; cursor: pointer; }
 
-        .btn-delete { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 0.8rem; padding: 4px 8px; border-radius: 4px; }
-        .btn-delete:hover { background: #fef2f2; }
+        .batch-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; }
+        .batch-count { font-size: 0.8rem; color: #64748b; }
 
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 600; }
-        .badge.type1 { background: #dbeafe; color: #1e40af; }
-        .badge.type2 { background: #fce7f3; color: #9d174d; }
+        .empty-state { text-align: center; padding: 40px; color: #94a3b8; font-size: 0.9rem; }
 
-        .empty-state { text-align: center; padding: 40px; color: #94a3b8; }
+        /* Toast */
+        .toast { position: fixed; bottom: 24px; right: 24px; padding: 14px 20px; border-radius: 10px; font-size: 0.85rem; font-weight: 500; color: white; z-index: 1000; transform: translateY(100px); opacity: 0; transition: all 0.3s; max-width: 400px; }
+        .toast.visible { transform: translateY(0); opacity: 1; }
+        .toast.success { background: #16a34a; }
+        .toast.error { background: #dc2626; }
+
+        /* Status message */
+        .status-msg { margin-top: 10px; font-size: 0.8rem; font-weight: 500; }
+        .status-msg.success { color: #16a34a; }
+        .status-msg.error { color: #dc2626; }
 
         @media (max-width: 768px) {
-            .upload-grid { grid-template-columns: 1fr; }
-            .result-grid { grid-template-columns: 1fr; }
+            .form-grid { grid-template-columns: 1fr; }
+            .form-actions { flex-direction: column; }
+            .btn { width: 100%; text-align: center; }
             table { font-size: 0.7rem; }
             th, td { padding: 8px 6px; }
         }
@@ -90,232 +129,424 @@
 </head>
 <body>
     <div class="header">
-        <h1>Extractor de Datos ASME - Recipientes a Presion</h1>
-        <p>Suba un certificado PDF para extraer datos automaticamente</p>
+        <h1>ASME Pressure Vessel Data Extractor</h1>
+        <p>Extraiga datos de certificados ASME y guardelos en Glide</p>
     </div>
 
     <div class="container">
-        <div class="upload-grid">
-            <div class="upload-zone" id="zone-type1" onclick="document.getElementById('file-type1').click()">
-                <div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>
-                <h3>Formulario U-1A (menos de 10 a&ntilde;os)</h3>
-                <p>Formulario ASME directo del fabricante<br>Arrastre o haga clic para subir</p>
-                <input type="file" id="file-type1" accept=".pdf">
-                <div class="spinner"></div>
-                <div class="status-msg" id="status-type1"></div>
+        <!-- Tabs -->
+        <div class="tabs">
+            <div class="tab active" data-tab="single" onclick="switchTab('single')">Subir PDF</div>
+            <div class="tab" data-tab="batch" onclick="switchTab('batch')">Procesar desde Glide</div>
+        </div>
+
+        <!-- TAB 1: Single upload -->
+        <div id="tab-single">
+            <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+                <div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+                <h3>Arrastra tu PDF aqui o haz clic para seleccionar</h3>
+                <p>Tipos aceptados: Formulario U-1A, Certificado de Inspeccion<br>Deteccion automatica del tipo de documento</p>
+                <input type="file" id="file-input" accept=".pdf">
+                <div class="status-msg" id="upload-status"></div>
             </div>
 
-            <div class="upload-zone" id="zone-type2" onclick="document.getElementById('file-type2').click()">
-                <div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8z"/><polyline points="16 3 16 8 21 8"/><path d="M9 13h6"/><path d="M9 17h3"/><path d="M9 9h1"/></svg></div>
-                <h3>Certificado de Inspeccion (mas de 10 a&ntilde;os)</h3>
-                <p>Certificado completo con U-1A embebido<br>Arrastre o haga clic para subir</p>
-                <input type="file" id="file-type2" accept=".pdf">
-                <div class="spinner"></div>
-                <div class="status-msg" id="status-type2"></div>
+            <div class="progress-section" id="progress-section">
+                <div class="progress-label" id="progress-label">Analizando PDF...</div>
+                <div class="progress-bar-bg"><div class="progress-bar-fill" id="progress-fill"></div></div>
+                <div class="progress-time">Tiempo estimado: ~30-60 segundos</div>
+            </div>
+
+            <div class="form-section" id="form-section">
+                <h2>Datos Extraidos</h2>
+                <div class="form-meta" id="form-meta"></div>
+
+                <div class="duplicate-warning" id="duplicate-warning">
+                    <div class="dw-title" id="dw-title"></div>
+                    <div id="dw-details" style="font-size:0.8rem;color:#78350f;"></div>
+                    <div class="dw-actions">
+                        <button class="btn btn-warning btn-sm" onclick="enableUpdate()">Actualizar existente</button>
+                        <button class="btn btn-secondary btn-sm" onclick="dismissDuplicate()">Crear nuevo de todos modos</button>
+                    </div>
+                </div>
+
+                <div class="warnings-bar" id="warnings-bar"></div>
+
+                <div class="form-grid" id="form-grid"></div>
+
+                <div class="form-actions">
+                    <button class="btn btn-secondary" onclick="resetForm()">Cancelar</button>
+                    <button class="btn btn-primary" id="btn-save" onclick="saveToGlide()">Guardar en Glide</button>
+                </div>
             </div>
         </div>
 
-        <div class="result-panel" id="result-panel">
-            <h2>Resultado de Extracci&oacute;n: <span id="result-filename"></span></h2>
-            <div class="warnings-bar" id="warnings-bar" style="display:none"></div>
-            <div class="result-grid" id="result-grid"></div>
-        </div>
-
-        <div class="history-section">
-            <h2>Historial de Registros</h2>
-            <div id="history-content">
-                <div class="empty-state">Cargando...</div>
+        <!-- TAB 2: Batch -->
+        <div id="tab-batch" class="batch-section">
+            <div class="batch-list">
+                <h2>Tanques pendientes de datos LIBRO DIGITAL</h2>
+                <div id="batch-content">
+                    <div class="empty-state">Cargando...</div>
+                </div>
+                <div class="batch-actions" id="batch-actions" style="display:none;">
+                    <div class="batch-count" id="batch-count">0 seleccionados</div>
+                    <button class="btn btn-primary" id="btn-batch" onclick="startBatch()">Procesar seleccionados</button>
+                </div>
             </div>
         </div>
     </div>
+
+    <div class="toast" id="toast"></div>
 
     <script>
         const API = window.location.origin;
 
+        /* ── Helpers ── */
         function esc(str) {
-            if (str === null || str === undefined) return null;
+            if (str === null || str === undefined) return '';
             const d = document.createElement('div');
             d.textContent = String(str);
             return d.innerHTML;
         }
-        const FIELD_LABELS = {
-            fabricante: 'Fabricante',
-            asme_code_edition: 'Edici\u00f3n ASME',
-            mawp_psi: 'MAWP (PSI)',
-            hydro_test_pressure_psi: 'Presi\u00f3n Hidrost\u00e1tica (PSI)',
-            material_cuerpo: 'Material Cuerpo',
-            espesor_cuerpo_mm: 'Espesor Cuerpo (mm)',
-            longitud_cuerpo_m: 'Longitud Cuerpo (m)',
-            diametro_interior_m: 'Di\u00e1metro Interior (m)',
-            material_cabezales: 'Material Cabezales',
-            espesor_cabezales_mm: 'Espesor Cabezales (mm)',
-            fecha_certificacion: 'Fecha Certificaci\u00f3n',
-        };
-        const RAW_MAP = {
-            mawp_psi: 'raw_mawp',
-            hydro_test_pressure_psi: 'raw_hydro_test_pressure',
-            espesor_cuerpo_mm: 'raw_espesor_cuerpo',
-            longitud_cuerpo_m: 'raw_longitud_cuerpo',
-            diametro_interior_m: 'raw_diametro_interior',
-            espesor_cabezales_mm: 'raw_espesor_cabezales',
-        };
 
-        function setupZone(zoneId, inputId, pdfType) {
-            const zone = document.getElementById(zoneId);
-            const input = document.getElementById(inputId);
-            const statusEl = document.getElementById('status-' + pdfType);
-
-            ['dragenter', 'dragover'].forEach(evt => {
-                zone.addEventListener(evt, e => { e.preventDefault(); zone.classList.add('dragover'); });
-            });
-            ['dragleave', 'drop'].forEach(evt => {
-                zone.addEventListener(evt, e => { e.preventDefault(); zone.classList.remove('dragover'); });
-            });
-
-            zone.addEventListener('drop', e => {
-                const file = e.dataTransfer.files[0];
-                if (file) uploadFile(file, pdfType, zone, statusEl);
-            });
-
-            input.addEventListener('change', () => {
-                const file = input.files[0];
-                if (file) uploadFile(file, pdfType, zone, statusEl);
-                input.value = '';
-            });
+        function showToast(msg, type) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = 'toast ' + type + ' visible';
+            setTimeout(() => { t.classList.remove('visible'); }, 4000);
         }
 
-        async function uploadFile(file, pdfType, zone, statusEl) {
+        /* ── Field config ── */
+        const FIELDS = [
+            { key: 'serial_number', label: 'Numero de Serie', locked: true },
+            { key: 'fabricante', label: 'Fabricante' },
+            { key: 'ano_fabricacion', label: 'Ano de Fabricacion' },
+            { key: 'asme_code_edition', label: 'Edicion Codigo ASME' },
+            { key: 'mawp_psi', label: 'MAWP (PSI)', raw: 'raw_mawp', type: 'number' },
+            { key: 'hydro_test_pressure_psi', label: 'Presion Hidrostatica (PSI)', raw: 'raw_hydro_test_pressure', type: 'number' },
+            { key: 'material_cuerpo', label: 'Material Cuerpo' },
+            { key: 'espesor_cuerpo_mm', label: 'Espesor Cuerpo (mm)', raw: 'raw_espesor_cuerpo', type: 'number' },
+            { key: 'longitud_cuerpo_m', label: 'Longitud Cuerpo (m)', raw: 'raw_longitud_cuerpo', type: 'number' },
+            { key: 'diametro_interior_m', label: 'Diametro Interior (m)', raw: 'raw_diametro_interior', type: 'number' },
+            { key: 'material_cabezales', label: 'Material Cabezales' },
+            { key: 'espesor_cabezales_mm', label: 'Espesor Cabezales (mm)', raw: 'raw_espesor_cabezales', type: 'number' },
+            { key: 'fecha_certificacion', label: 'Fecha Certificacion', type: 'date' },
+        ];
+
+        /* ── State ── */
+        let currentExtraction = null;
+        let duplicateRowId = null;
+
+        /* ── Tabs ── */
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+            document.getElementById('tab-single').style.display = tab === 'single' ? 'block' : 'none';
+            document.getElementById('tab-batch').style.display = tab === 'batch' ? 'block' : 'none';
+            document.getElementById('tab-batch').classList.toggle('visible', tab === 'batch');
+            if (tab === 'batch') loadPendingTanques();
+        }
+
+        /* ── Upload zone ── */
+        const zone = document.getElementById('upload-zone');
+        const fileInput = document.getElementById('file-input');
+
+        ['dragenter', 'dragover'].forEach(evt => {
+            zone.addEventListener(evt, e => { e.preventDefault(); zone.classList.add('dragover'); });
+        });
+        ['dragleave', 'drop'].forEach(evt => {
+            zone.addEventListener(evt, e => { e.preventDefault(); zone.classList.remove('dragover'); });
+        });
+        zone.addEventListener('drop', e => {
+            const file = e.dataTransfer.files[0];
+            if (file) handleUpload(file);
+        });
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            if (file) handleUpload(file);
+            fileInput.value = '';
+        });
+
+        /* ── Upload & Extract ── */
+        async function handleUpload(file) {
+            const statusEl = document.getElementById('upload-status');
+
             if (!file.name.toLowerCase().endsWith('.pdf')) {
-                statusEl.textContent = 'Solo archivos PDF';
+                statusEl.textContent = 'Solo se aceptan archivos PDF';
                 statusEl.className = 'status-msg error';
                 return;
             }
 
-            zone.classList.add('processing');
-            zone.classList.remove('error');
-            statusEl.textContent = 'Procesando... (puede tomar 5-10s)';
-            statusEl.className = 'status-msg';
+            resetForm();
+            zone.classList.add('disabled');
+            statusEl.textContent = '';
+
+            const progress = document.getElementById('progress-section');
+            const fill = document.getElementById('progress-fill');
+            const label = document.getElementById('progress-label');
+            progress.classList.add('visible');
+
+            label.textContent = 'Analizando PDF...';
+            fill.style.width = '20%';
 
             const formData = new FormData();
             formData.append('file', file);
 
+            setTimeout(() => { label.textContent = 'Extrayendo datos con Vision AI...'; fill.style.width = '50%'; }, 2000);
+            setTimeout(() => { fill.style.width = '70%'; }, 5000);
+
             try {
-                const res = await fetch(`${API}/api/upload/${pdfType}`, { method: 'POST', body: formData });
+                const res = await fetch(API + '/api/extract', { method: 'POST', body: formData });
                 const data = await res.json();
 
-                if (!res.ok) {
-                    throw new Error(data.detail || 'Error desconocido');
-                }
+                if (!res.ok) throw new Error(data.detail || 'Error desconocido');
 
-                statusEl.textContent = 'Extracci\u00f3n exitosa';
-                statusEl.className = 'status-msg success';
-                showResult(data.record);
-                loadHistory();
+                fill.style.width = '100%';
+                label.textContent = 'Listo';
+
+                setTimeout(() => {
+                    progress.classList.remove('visible');
+                    showExtractionForm(data);
+                }, 500);
             } catch (err) {
-                zone.classList.add('error');
+                progress.classList.remove('visible');
                 statusEl.textContent = err.message;
                 statusEl.className = 'status-msg error';
             } finally {
-                zone.classList.remove('processing');
+                zone.classList.remove('disabled');
             }
         }
 
-        function showResult(record) {
-            const panel = document.getElementById('result-panel');
-            const grid = document.getElementById('result-grid');
+        /* ── Show extraction form ── */
+        function showExtractionForm(data) {
+            currentExtraction = data;
+            duplicateRowId = null;
+            const extraction = data.extraction || {};
+
+            const meta = document.getElementById('form-meta');
+            const typeLabel = data.pdf_type === 'TYPE_1' ? 'U-1A' : 'Cert. Inspeccion';
+            const badgeClass = data.pdf_type === 'TYPE_1' ? 'type1' : 'type2';
+            meta.innerHTML = '<span class="badge ' + badgeClass + '">' + esc(typeLabel) + '</span> ' + esc(data.filename);
+
+            // Warnings
+            const warnings = extraction.warnings || [];
             const warningsBar = document.getElementById('warnings-bar');
-
-            document.getElementById('result-filename').textContent =
-                record.original_filename + ' (' + record.pdf_type + ')';
-
-            const warnings = record.extraction_warnings || [];
             if (warnings.length > 0) {
-                warningsBar.style.display = 'block';
-                warningsBar.innerHTML = '<strong>Advertencias:</strong> ' + warnings.join(' | ');
+                warningsBar.innerHTML = '<strong>Advertencias:</strong> ' + warnings.map(w => esc(w)).join(' | ');
+                warningsBar.classList.add('visible');
             } else {
-                warningsBar.style.display = 'none';
+                warningsBar.classList.remove('visible');
             }
 
-            const warningFields = new Set(
-                warnings.map(w => { const m = w.match(/'([^']+)'/); return m ? m[1] : ''; })
-            );
+            const warningFields = new Set(warnings.map(w => { const m = w.match(/'([^']+)'/); return m ? m[1] : ''; }));
 
+            // Duplicate warning
+            const dw = document.getElementById('duplicate-warning');
+            if (data.duplicate_found && data.existing_data) {
+                const serie = extraction.serial_number || '?';
+                document.getElementById('dw-title').textContent = 'Tanque ' + serie + ' ya existe en Glide';
+                const existing = data.existing_data;
+                const details = ['fabricante', 'mawp_psi', 'fecha_certificacion']
+                    .filter(k => existing[k])
+                    .map(k => k + ': ' + existing[k])
+                    .join(' | ');
+                document.getElementById('dw-details').textContent = details || 'Datos existentes disponibles';
+                duplicateRowId = existing.row_id || null;
+                dw.classList.add('visible');
+            } else {
+                dw.classList.remove('visible');
+            }
+
+            // Build form fields
+            const grid = document.getElementById('form-grid');
             grid.innerHTML = '';
-            for (const [key, label] of Object.entries(FIELD_LABELS)) {
-                const val = record[key];
-                const isWarning = warningFields.has(key);
-                const rawKey = RAW_MAP[key];
-                const rawVal = rawKey ? record[rawKey] : null;
+
+            for (const field of FIELDS) {
+                const val = extraction[field.key];
+                const isWarning = warningFields.has(field.key);
+                const rawVal = field.raw ? extraction[field.raw] : null;
 
                 const div = document.createElement('div');
-                div.className = 'result-field' + (isWarning ? ' warning' : '');
+                div.className = 'form-field' + (isWarning ? ' warning' : '');
+
+                let inputType = 'text';
+                if (field.type === 'number') inputType = 'text';
+                if (field.type === 'date') inputType = 'date';
+
+                const inputVal = val !== null && val !== undefined ? val : '';
+
                 div.innerHTML =
-                    '<label>' + esc(label) + '</label>' +
-                    '<div class="value">' + (val !== null && val !== undefined ? esc(val) : '—') + '</div>' +
-                    (rawVal ? '<div class="raw">Original: ' + esc(rawVal) + '</div>' : '');
+                    '<label>' + esc(field.label) + '</label>' +
+                    '<input type="' + inputType + '" name="' + field.key + '" value="' + esc(String(inputVal)) + '"' +
+                    (field.locked ? ' class="locked" readonly' : '') + '>' +
+                    (rawVal ? '<div class="raw-hint">Original: ' + esc(rawVal) + '</div>' : '');
+
                 grid.appendChild(div);
             }
 
-            // Extra fields
-            for (const [key, label] of [['serial_number', 'N\u00famero de Serie'], ['vessel_type', 'Tipo Recipiente']]) {
-                const div = document.createElement('div');
-                div.className = 'result-field';
-                div.innerHTML = '<label>' + esc(label) + '</label><div class="value">' + (esc(record[key]) || '—') + '</div>';
-                grid.appendChild(div);
-            }
-
-            panel.classList.add('visible');
+            document.getElementById('form-section').classList.add('visible');
+            document.getElementById('btn-save').textContent = 'Guardar en Glide';
+            document.getElementById('btn-save').disabled = false;
         }
 
-        async function loadHistory() {
-            const container = document.getElementById('history-content');
-            try {
-                const res = await fetch(`${API}/api/records?limit=20`);
-                const data = await res.json();
+        /* ── Duplicate actions ── */
+        function enableUpdate() {
+            document.getElementById('btn-save').textContent = 'Actualizar en Glide';
+            document.getElementById('duplicate-warning').classList.remove('visible');
+        }
 
-                if (data.records.length === 0) {
-                    container.innerHTML = '<div class="empty-state">No hay registros aun. Suba un PDF para comenzar.</div>';
+        function dismissDuplicate() {
+            duplicateRowId = null;
+            document.getElementById('duplicate-warning').classList.remove('visible');
+            document.getElementById('btn-save').textContent = 'Guardar en Glide';
+        }
+
+        /* ── Save to Glide ── */
+        async function saveToGlide() {
+            const btn = document.getElementById('btn-save');
+            btn.disabled = true;
+            btn.textContent = 'Guardando...';
+
+            const formData = {};
+            const inputs = document.querySelectorAll('#form-grid input');
+            inputs.forEach(input => {
+                const val = input.value.trim();
+                if (val) formData[input.name] = val;
+            });
+
+            if (!formData.serial_number) {
+                showToast('El numero de serie es obligatorio', 'error');
+                btn.disabled = false;
+                btn.textContent = 'Guardar en Glide';
+                return;
+            }
+
+            const payload = {
+                serie: formData.serial_number,
+                ano_fabricacion: formData.ano_fabricacion || null,
+                fabricante: formData.fabricante || null,
+                asme_code_edition: formData.asme_code_edition || null,
+                mawp_psi: formData.mawp_psi || null,
+                hydro_test_pressure_psi: formData.hydro_test_pressure_psi || null,
+                material_cuerpo: formData.material_cuerpo || null,
+                espesor_cuerpo_mm: formData.espesor_cuerpo_mm || null,
+                longitud_cuerpo_m: formData.longitud_cuerpo_m || null,
+                diametro_interior_m: formData.diametro_interior_m || null,
+                material_cabezales: formData.material_cabezales || null,
+                espesor_cabezales_mm: formData.espesor_cabezales_mm || null,
+                fecha_certificacion: formData.fecha_certificacion || null,
+                row_id: duplicateRowId || null,
+            };
+
+            try {
+                const res = await fetch(API + '/api/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Error al guardar');
+
+                showToast(data.message, 'success');
+                resetForm();
+            } catch (err) {
+                showToast(err.message, 'error');
+                btn.disabled = false;
+                btn.textContent = duplicateRowId ? 'Actualizar en Glide' : 'Guardar en Glide';
+            }
+        }
+
+        /* ── Reset ── */
+        function resetForm() {
+            document.getElementById('form-section').classList.remove('visible');
+            document.getElementById('progress-section').classList.remove('visible');
+            document.getElementById('duplicate-warning').classList.remove('visible');
+            document.getElementById('warnings-bar').classList.remove('visible');
+            document.getElementById('upload-status').textContent = '';
+            document.getElementById('progress-fill').style.width = '0%';
+            currentExtraction = null;
+            duplicateRowId = null;
+        }
+
+        /* ── Batch: Load pending tanques ── */
+        async function loadPendingTanques() {
+            const container = document.getElementById('batch-content');
+            const actions = document.getElementById('batch-actions');
+            container.innerHTML = '<div class="empty-state">Cargando tanques pendientes...</div>';
+            actions.style.display = 'none';
+
+            try {
+                const res = await fetch(API + '/api/tanques/pendientes');
+                const tanques = await res.json();
+
+                if (!res.ok) throw new Error('Error al cargar tanques');
+
+                if (tanques.length === 0) {
+                    container.innerHTML = '<div class="empty-state">No hay tanques pendientes de datos LIBRO DIGITAL</div>';
                     return;
                 }
 
                 let html = '<table><thead><tr>' +
-                    '<th>ID</th><th>Tipo</th><th>Archivo</th><th>Serie</th>' +
-                    '<th>Fabricante</th><th>MAWP</th><th>Fecha Cert.</th><th></th>' +
+                    '<th class="cb-cell"><input type="checkbox" onchange="toggleAllBatch(this)"></th>' +
+                    '<th>Serie</th><th>Fabricante</th><th>Ano</th>' +
                     '</tr></thead><tbody>';
 
-                for (const r of data.records) {
-                    const badge = r.pdf_type === 'TYPE_1' ? 'type1' : 'type2';
-                    const typeLabel = r.pdf_type === 'TYPE_1' ? 'U-1A' : 'Cert. Insp.';
+                for (const t of tanques) {
                     html += '<tr>' +
-                        '<td>' + r.id + '</td>' +
-                        '<td><span class="badge ' + badge + '">' + typeLabel + '</span></td>' +
-                        '<td>' + (esc(r.original_filename) || '—') + '</td>' +
-                        '<td>' + (esc(r.serial_number) || '—') + '</td>' +
-                        '<td>' + (esc(r.fabricante) || '—') + '</td>' +
-                        '<td>' + (r.mawp_psi ? esc(r.mawp_psi) + ' PSI' : '—') + '</td>' +
-                        '<td>' + (esc(r.fecha_certificacion) || '—') + '</td>' +
-                        '<td><button class="btn-delete" onclick="deleteRecord(' + r.id + ')">Eliminar</button></td>' +
+                        '<td class="cb-cell"><input type="checkbox" class="batch-cb" value="' + esc(t.row_id) + '" onchange="updateBatchCount()"></td>' +
+                        '<td>' + (esc(t.serie) || '—') + '</td>' +
+                        '<td>' + (esc(t.fabricante) || '—') + '</td>' +
+                        '<td>' + (esc(t.ano_fabricacion) || '—') + '</td>' +
                         '</tr>';
                 }
                 html += '</tbody></table>';
                 container.innerHTML = html;
-            } catch {
-                container.innerHTML = '<div class="empty-state">Error al cargar historial</div>';
+                actions.style.display = 'flex';
+                updateBatchCount();
+            } catch (err) {
+                container.innerHTML = '<div class="empty-state">Error al cargar tanques: ' + esc(err.message) + '</div>';
             }
         }
 
-        async function deleteRecord(id) {
-            if (!confirm('Eliminar registro #' + id + '?')) return;
-            try {
-                await fetch(`${API}/api/records/${id}`, { method: 'DELETE' });
-                loadHistory();
-                document.getElementById('result-panel').classList.remove('visible');
-            } catch { /* ignore */ }
+        function toggleAllBatch(master) {
+            document.querySelectorAll('.batch-cb').forEach(cb => { cb.checked = master.checked; });
+            updateBatchCount();
         }
 
-        setupZone('zone-type1', 'file-type1', 'type1');
-        setupZone('zone-type2', 'file-type2', 'type2');
-        loadHistory();
+        function updateBatchCount() {
+            const checked = document.querySelectorAll('.batch-cb:checked').length;
+            document.getElementById('batch-count').textContent = checked + ' seleccionado' + (checked !== 1 ? 's' : '');
+            document.getElementById('btn-batch').disabled = checked === 0;
+        }
+
+        /* ── Batch: Process ── */
+        async function startBatch() {
+            const selected = Array.from(document.querySelectorAll('.batch-cb:checked')).map(cb => cb.value);
+            if (selected.length === 0) return;
+
+            const btn = document.getElementById('btn-batch');
+            btn.disabled = true;
+            btn.textContent = 'Obteniendo PDFs...';
+
+            try {
+                const res = await fetch(API + '/api/batch/process', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(selected),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Error en batch');
+
+                const totalPdfs = data.total_pdfs || 0;
+                showToast('Se encontraron ' + totalPdfs + ' PDFs para procesar. Procesamiento individual disponible via Tab "Subir PDF".', totalPdfs > 0 ? 'success' : 'error');
+            } catch (err) {
+                showToast('Error: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Procesar seleccionados';
+            }
+        }
+
+        /* ── Init ── */
+        document.getElementById('tab-batch').style.display = 'none';
     </script>
 </body>
 </html>

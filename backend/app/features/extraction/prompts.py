@@ -18,6 +18,7 @@ Extrae los siguientes campos y devuelve SOLO un JSON valido (sin markdown, sin `
 
 CAMPOS A EXTRAER:
 - fabricante: Nombre del fabricante (manufacturer name)
+- ano_fabricacion: Ano de fabricacion del recipiente. Extraer del campo "DATE" del formulario U-1A (solo el ano, ej: "2017"). Si no hay fecha explicita, usar el ano de fecha_certificacion
 - asme_code_edition: Ano/edicion del codigo ASME usado (ej: "2019", "2021 Edition")
 - mawp_psi: Maximum Allowable Working Pressure en PSI (numero decimal)
 - hydro_test_pressure_psi: Presion de prueba hidrostatica en PSI (numero decimal)
@@ -55,6 +56,7 @@ Extrae los siguientes campos combinando informacion de AMBAS imagenes y devuelve
 
 CAMPOS A EXTRAER:
 - fabricante: Nombre del fabricante
+- ano_fabricacion: Ano de fabricacion del recipiente. Buscar en "DATOS DEL PRODUCTO" o en CERTIFICATE OF COMPLIANCE. Extraer solo el ano (ej: "2015"). Si no hay fecha explicita, usar el ano de fecha_certificacion
 - asme_code_edition: Ano/edicion del codigo ASME
 - mawp_psi: Presion maxima de trabajo. Si esta en kg/cm2, convertir a PSI (1 kg/cm2 = 14.2233 PSI). Si esta en bar, convertir (1 bar = 14.5038 PSI)
 - hydro_test_pressure_psi: Presion de prueba hidrostatica en PSI (buscar en el U-1A embebido si no esta en la pag de datos). Mismas conversiones

@@ -1,9 +1,9 @@
 """
-Deteccion y validacion de tipo de PDF (Type 1 vs Type 2) via texto.
-- Finalidad: Usa pdfplumber para leer texto de pag 1, detectar tipo de PDF,
-  validar que coincida con la zona de upload, y buscar U-1A embebido en Type 2.
+Auto-deteccion de tipo de PDF y utilidades de texto para PDFs ASME.
+- Finalidad: Usa pdfplumber para leer texto de pag 1, auto-detectar tipo de PDF
+  (TYPE_1 U-1A directo o TYPE_2 Certificado de Inspeccion), y buscar U-1A embebido.
 - Consume: nada interno (solo pdfplumber)
-- Consumido por: service.py (validacion + busqueda U-1A), router.py (PDFTypeError)
+- Consumido por: service.py (auto-detect + busqueda U-1A), router.py (PDFTypeError)
 """
 
 import io
@@ -12,7 +12,7 @@ import pdfplumber
 
 
 class PDFTypeError(Exception):
-    """Error cuando el PDF no coincide con el tipo esperado."""
+    """Error cuando el PDF no es un tipo ASME reconocido."""
 
     pass
 
@@ -54,25 +54,6 @@ def detect_pdf_type(pdf_bytes: bytes) -> str:
         "No se pudo determinar el tipo de PDF. "
         "Asegurese de subir un formulario ASME U-1A o un Certificado de Inspeccion."
     )
-
-
-def validate_pdf_type(pdf_bytes: bytes, expected_type: str) -> None:
-    """Valida que el PDF corresponda al tipo esperado.
-
-    Raises:
-        PDFTypeError si no coincide.
-    """
-    detected = detect_pdf_type(pdf_bytes)
-    if detected != expected_type:
-        type_names = {
-            "TYPE_1": "FORM U-1A (< 10 anos)",
-            "TYPE_2": "Certificado de Inspeccion (> 10 anos)",
-        }
-        raise PDFTypeError(
-            f"El PDF parece ser {type_names.get(detected, detected)}, "
-            f"pero se subio en la zona de {type_names.get(expected_type, expected_type)}. "
-            f"Por favor use la zona correcta."
-        )
 
 
 def find_u1a_page(pdf_bytes: bytes) -> int | None:

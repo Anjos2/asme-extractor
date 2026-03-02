@@ -1,9 +1,9 @@
 """
 Configuracion centralizada via variables de entorno.
-- Finalidad: Centraliza todas las settings de la app (DB, OpenAI, PDF, CORS)
+- Finalidad: Centraliza todas las settings de la app (Glide API, OpenAI, PDF, CORS)
   en un unico punto, leyendo de env vars con defaults seguros.
 - Consume: nada (solo stdlib os)
-- Consumido por: database.py, llm_extractor.py, main.py, router.py
+- Consumido por: glide/client.py, llm_extractor.py, main.py, router.py
 """
 
 import os
@@ -11,11 +11,9 @@ from functools import lru_cache
 
 
 class Settings:
-    # Database
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL",
-        "postgresql+asyncpg://asme_user:asme_pass@localhost:5432/asme_db",
-    )
+    # Glide API
+    GLIDE_APP_ID: str = os.getenv("GLIDE_APP_ID", "")
+    GLIDE_API_TOKEN: str = os.getenv("GLIDE_API_TOKEN", "")
 
     # OpenAI
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
@@ -28,7 +26,7 @@ class Settings:
 
     # App
     APP_TITLE: str = "ASME Pressure Vessel Extractor"
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = "2.0.0"
     CORS_ORIGINS: list[str] = os.getenv("CORS_ORIGINS", "*").split(",")
 
 
