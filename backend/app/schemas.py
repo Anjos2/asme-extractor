@@ -10,7 +10,7 @@ Pydantic schemas para request/response de la API.
 from datetime import date
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class ExtractionResult(BaseModel):
@@ -54,6 +54,14 @@ class ExtractUrlRequest(BaseModel):
     filename: str | None = None
     auto_save: bool = False
     id_activo: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_row_id(cls, data: dict) -> dict:
+        """Backward compat: acepta 'row_id' como alias de 'id_activo'."""
+        if isinstance(data, dict) and "row_id" in data and "id_activo" not in data:
+            data["id_activo"] = data.pop("row_id")
+        return data
 
 
 class BatchExtractRequest(BaseModel):

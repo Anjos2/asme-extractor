@@ -142,8 +142,8 @@ async def extract_pdf_from_url(raw_request: Request):
 
     request = ExtractUrlRequest(**data)
     logger.info(
-        "POST /extract-url — pdf_url=%s, filename=%s, content_type=%s",
-        request.pdf_url, request.filename, content_type,
+        "POST /extract-url — pdf_url=%s, filename=%s, id_activo=%s, auto_save=%s, content_type=%s",
+        request.pdf_url, request.filename, request.id_activo, request.auto_save, content_type,
     )
     max_size = settings.MAX_PDF_SIZE_MB * 1024 * 1024
 
