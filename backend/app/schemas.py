@@ -75,11 +75,17 @@ class BatchExtractRequest(BaseModel):
 
 
 class ExtractionResponse(BaseModel):
-    """Respuesta tras extraer datos. Con auto_save incluye resultado de guardado."""
+    """Respuesta tras extraer datos. Con auto_save incluye resultado de guardado.
 
-    pdf_type: str
-    filename: str
-    extraction: dict
+    Siempre retorna 200. Si hay error, status='error' y error_message tiene el detalle.
+    Glide puede leer error_message para mostrar al usuario.
+    """
+
+    status: str = "ok"
+    error_message: str | None = None
+    pdf_type: str | None = None
+    filename: str | None = None
+    extraction: dict | None = None
     duplicate_found: bool = False
     existing_data: dict | None = None
     is_range: bool = False

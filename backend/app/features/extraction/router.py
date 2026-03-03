@@ -153,20 +153,20 @@ async def extract_pdf_from_url(raw_request: Request):
             response.raise_for_status()
     except httpx.TimeoutException:
         logger.error("POST /extract-url timeout descargando %s", request.pdf_url)
-        raise HTTPException(504, "Timeout descargando PDF (60s)")
+        return ExtractionResponse(status="error", error_message="No se pudo descargar el PDF: tiempo de espera agotado (60s)")
     except httpx.HTTPStatusError as e:
         logger.error("POST /extract-url HTTP error %d descargando %s", e.response.status_code, request.pdf_url)
-        raise HTTPException(502, f"Error descargando PDF: HTTP {e.response.status_code}")
+        return ExtractionResponse(status="error", error_message=f"No se pudo descargar el PDF: error HTTP {e.response.status_code}")
     except httpx.RequestError as e:
         logger.error("POST /extract-url conexion error: %s", e)
-        raise HTTPException(502, f"Error de conexion descargando PDF: {e}")
+        return ExtractionResponse(status="error", error_message="No se pudo descargar el PDF: error de conexion")
 
     pdf_bytes = response.content
     logger.info("POST /extract-url — PDF descargado: %d bytes", len(pdf_bytes))
 
     if len(pdf_bytes) > max_size:
         logger.warning("POST /extract-url rechazado: PDF excede limite (%d > %d)", len(pdf_bytes), max_size)
-        raise HTTPException(400, f"PDF excede {settings.MAX_PDF_SIZE_MB}MB")
+        return ExtractionResponse(status="error", error_message=f"El PDF excede el limite de {settings.MAX_PDF_SIZE_MB}MB")
 
     filename = request.filename
     if not filename:
@@ -179,13 +179,22 @@ async def extract_pdf_from_url(raw_request: Request):
         result = await extract_from_pdf(pdf_bytes=pdf_bytes, filename=filename)
     except PDFTypeError as e:
         logger.error("POST /extract-url PDFTypeError: %s", e)
-        raise HTTPException(422, str(e))
+        return ExtractionResponse(
+            status="error", filename=filename,
+            error_message="El documento no es un formulario ASME U-1A ni un Certificado de Inspeccion reconocido. Verifique que el PDF sea correcto.",
+        )
     except ValueError as e:
         logger.error("POST /extract-url ValueError: %s", e)
-        raise HTTPException(422, str(e))
+        return ExtractionResponse(
+            status="error", filename=filename,
+            error_message=f"No se pudieron extraer datos del PDF: {e}",
+        )
     except RuntimeError as e:
         logger.error("POST /extract-url RuntimeError: %s", e)
-        raise HTTPException(500, str(e))
+        return ExtractionResponse(
+            status="error", filename=filename,
+            error_message=f"Error procesando el PDF: {e}",
+        )
 
     serie = result.get("extraction", {}).get("serial_number")
     logger.info(
