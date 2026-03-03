@@ -1,20 +1,17 @@
 """
-Punto de entrada de la aplicacion FastAPI.
-- Finalidad: Configura app, registra routers, sirve frontend, maneja lifecycle.
+Punto de entrada de la aplicacion FastAPI (API-only, sin frontend).
+- Finalidad: Configura app, registra routers, maneja lifecycle. GET / redirige a /docs.
 - Consume: config.py (settings), features/extraction/router.py (endpoints API)
 - Consumido por: Dockerfile (uvicorn app.main:app), docker-compose
 """
 
 import logging
-import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import get_settings
@@ -104,14 +101,6 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 app.include_router(extraction_router)
 
-_frontend_env = os.getenv("FRONTEND_DIR")
-if _frontend_env:
-    FRONTEND_DIR = Path(_frontend_env)
-elif Path("/frontend").exists():
-    FRONTEND_DIR = Path("/frontend")
-else:
-    FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
-
 
 @app.get("/api/health")
 async def health_check():
@@ -119,12 +108,6 @@ async def health_check():
 
 
 @app.get("/")
-async def serve_frontend():
-    index = FRONTEND_DIR / "index.html"
-    if index.exists():
-        return FileResponse(index)
-    return {"message": "Frontend not found. Place index.html in /frontend/"}
-
-
-if FRONTEND_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+async def root_redirect():
+    """Redirige a la documentacion Swagger de la API."""
+    return RedirectResponse(url="/docs")

@@ -16,8 +16,6 @@ services:
       - openai_api_key
       - glide_api_token
       - asme_api_key
-    volumes:
-      - ./frontend:/frontend
     deploy:
       labels:
         - "traefik.enable=true"

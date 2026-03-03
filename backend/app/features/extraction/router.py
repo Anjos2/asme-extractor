@@ -3,12 +3,13 @@ Endpoints API para extraccion ASME, guardado en Glide y gestion de tanques.
 - Finalidad: Capa HTTP que recibe requests y delega a service.py y glide/repository.py.
   Endpoints: /extract, /extract-url (con auto_save + id_activo), /batch/extract (masivo),
   /save, /tanques, /tanques/{serie}/check, /batch/process.
-  /extract-url acepta auto_save=True + id_activo para extraer y guardar en un solo paso (flujo Glide).
-  /batch/extract procesa multiples PDFs en una sola peticion sin consultas repetidas a Glide.
+  Proteccion "solo campos vacios": tanto /extract-url como /batch/extract verifican
+  datos existentes en Glide antes de guardar, solo llenando campos que estan vacios.
+  Batch optimizado: UNA sola query a Glide al inicio para cache de todos los tanques.
   Todos protegidos con API key via auth.py.
 - Consume: service.py (extract, save, check), schemas.py (request/response),
   validators.py (PDFTypeError), config.py (MAX_PDF_SIZE_MB), auth.py (verify_api_key),
-  glide/repository.py (list, batch)
+  glide/repository.py (list, batch, get_tanque_by_row_id, get_all_tanques_by_row_id)
 - Consumido por: main.py (registro de router)
 """
 
@@ -28,7 +29,9 @@ from app.features.extraction.service import (
 )
 from app.features.extraction.validators import PDFTypeError
 from app.features.glide.repository import (
+    get_all_tanques_by_row_id,
     get_documentos_by_tanque,
+    get_tanque_by_row_id,
     get_tanques_sin_libro_digital,
     list_tanques,
 )
@@ -49,6 +52,21 @@ router = APIRouter(
     tags=["extraction"],
     dependencies=[Depends(verify_api_key)],
 )
+
+
+def _filter_empty_fields(save_data: dict, existing: dict) -> dict:
+    """Filtra save_data para solo incluir campos vacios en Glide.
+
+    Si el campo ya tiene valor en Glide, no se sobrescribe.
+    Esto protege datos ingresados manualmente por el usuario.
+    """
+    filtered = {}
+    for campo, valor in save_data.items():
+        existing_val = existing.get(campo)
+        if existing_val:
+            continue  # campo ya tiene valor → no sobrescribir
+        filtered[campo] = valor
+    return filtered
 
 
 def _build_save_data(ext: dict, serie: str, include_serie: bool = True) -> dict:
@@ -188,15 +206,33 @@ async def extract_pdf_from_url(raw_request: Request):
         logger.info("POST /extract-url auto_save — row_id=%s (source=%s)",
                      row_id, "request" if request.id_activo else ("duplicate" if row_id else "new"))
 
-        try:
-            save_result = await save_to_glide(data=save_data, row_id=row_id)
-            result["saved"] = True
-            result["save_result"] = save_result
-            logger.info("POST /extract-url auto_save OK — action=%s, row_id=%s", save_result.get("action"), save_result.get("row_id"))
-        except Exception as e:
-            logger.error("POST /extract-url auto_save error: %s", e)
+        # Proteccion: solo llenar campos vacios (no sobrescribir datos existentes)
+        if row_id:
+            try:
+                existing = await get_tanque_by_row_id(row_id)
+                if existing:
+                    original_count = len(save_data)
+                    save_data = _filter_empty_fields(save_data, existing)
+                    skipped = original_count - len(save_data)
+                    if skipped:
+                        logger.info("POST /extract-url — %d campos omitidos (ya tienen valor)", skipped)
+            except Exception as e:
+                logger.warning("POST /extract-url — no se pudo verificar campos existentes: %s", e)
+
+        if not save_data:
+            logger.info("POST /extract-url — todos los campos ya tienen valor, nada que guardar")
             result["saved"] = False
-            result["save_result"] = {"error": str(e)}
+            result["save_result"] = {"message": "Todos los campos ya tienen valor en Glide"}
+        else:
+            try:
+                save_result = await save_to_glide(data=save_data, row_id=row_id)
+                result["saved"] = True
+                result["save_result"] = save_result
+                logger.info("POST /extract-url auto_save OK — action=%s, row_id=%s", save_result.get("action"), save_result.get("row_id"))
+            except Exception as e:
+                logger.error("POST /extract-url auto_save error: %s", e)
+                result["saved"] = False
+                result["save_result"] = {"error": str(e)}
 
     return ExtractionResponse(**result)
 
@@ -323,8 +359,9 @@ async def batch_extract(raw_request: Request):
     """Procesa multiples PDFs en una sola peticion.
 
     Recibe lista de items con pdf_url + id_activo. Descarga, extrae y guarda
-    cada PDF directamente en el id_activo indicado, sin consultas adicionales
-    a Glide (no busca duplicados, usa id_activo directo).
+    cada PDF directamente en el id_activo indicado.
+    Proteccion: solo llena campos vacios (no sobrescribe datos existentes).
+    Optimizacion: UNA sola query a Glide al inicio para obtener todos los tanques.
 
     Body JSON:
         {"items": [{"pdf_url": "...", "id_activo": "...", "auto_save": true}, ...]}
@@ -347,8 +384,16 @@ async def batch_extract(raw_request: Request):
 
     logger.info("POST /batch/extract — %d PDFs a procesar", len(batch_req.items))
     max_size = settings.MAX_PDF_SIZE_MB * 1024 * 1024
-    results = []
 
+    # UNA sola query a Glide: obtener todos los tanques indexados por row_id
+    tanques_cache: dict[str, dict] = {}
+    try:
+        tanques_cache = await get_all_tanques_by_row_id()
+        logger.info("POST /batch/extract — cache de %d tanques cargado", len(tanques_cache))
+    except Exception as e:
+        logger.warning("POST /batch/extract — no se pudo cargar cache de tanques: %s", e)
+
+    results = []
     for i, item in enumerate(batch_req.items):
         item_result = {"pdf_url": item.pdf_url, "id_activo": item.id_activo}
         try:
@@ -370,7 +415,7 @@ async def batch_extract(raw_request: Request):
             if not filename.lower().endswith(".pdf"):
                 filename += ".pdf"
 
-            # Extraer datos (sin consulta de duplicados a Glide)
+            # Extraer datos
             result = await extract_from_pdf(pdf_bytes=pdf_bytes, filename=filename)
             serie = result.get("extraction", {}).get("serial_number")
             item_result["pdf_type"] = result.get("pdf_type")
@@ -383,11 +428,26 @@ async def batch_extract(raw_request: Request):
                 save_data = _build_save_data(ext, serie or "", include_serie=False)
                 save_data = {k: v for k, v in save_data.items() if v is not None}
 
-                save_result = await save_to_glide(data=save_data, row_id=item.id_activo)
-                item_result["saved"] = True
-                item_result["save_action"] = save_result.get("action")
-                item_result["status"] = "ok"
-                logger.info("  batch[%d] OK — serie=%s, saved to %s", i, serie, item.id_activo)
+                # Proteccion: solo llenar campos vacios
+                existing = tanques_cache.get(item.id_activo, {})
+                if existing:
+                    original_count = len(save_data)
+                    save_data = _filter_empty_fields(save_data, existing)
+                    skipped = original_count - len(save_data)
+                    if skipped:
+                        logger.info("  batch[%d] — %d campos omitidos (ya tienen valor)", i, skipped)
+
+                if not save_data:
+                    item_result["saved"] = False
+                    item_result["status"] = "skipped"
+                    item_result["message"] = "Todos los campos ya tienen valor"
+                    logger.info("  batch[%d] SKIP — serie=%s, todos los campos llenos", i, serie)
+                else:
+                    save_result = await save_to_glide(data=save_data, row_id=item.id_activo)
+                    item_result["saved"] = True
+                    item_result["save_action"] = save_result.get("action")
+                    item_result["status"] = "ok"
+                    logger.info("  batch[%d] OK — serie=%s, saved %d campos to %s", i, serie, len(save_data), item.id_activo)
             else:
                 item_result["saved"] = False
                 item_result["status"] = "extracted"
@@ -401,6 +461,7 @@ async def batch_extract(raw_request: Request):
         results.append(item_result)
 
     ok_count = sum(1 for r in results if r["status"] == "ok")
+    skip_count = sum(1 for r in results if r.get("status") == "skipped")
     err_count = sum(1 for r in results if r["status"] == "error")
-    logger.info("POST /batch/extract DONE — %d total, %d ok, %d errors", len(results), ok_count, err_count)
-    return {"results": results, "total": len(results), "ok": ok_count, "errors": err_count}
+    logger.info("POST /batch/extract DONE — %d total, %d ok, %d skipped, %d errors", len(results), ok_count, skip_count, err_count)
+    return {"results": results, "total": len(results), "ok": ok_count, "skipped": skip_count, "errors": err_count}
