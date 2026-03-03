@@ -190,5 +190,8 @@ def from_glide_columns(row: dict, column_map_inv: dict) -> dict:
         result["row_id"] = row["$rowID"]
     for code, name in column_map_inv.items():
         if code in row:
-            result[name] = row[code]
+            value = row[code]
+            if value is not None and not isinstance(value, (list, dict)):
+                value = str(value)
+            result[name] = value
     return result
