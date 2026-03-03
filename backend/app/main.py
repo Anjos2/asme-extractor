@@ -83,16 +83,22 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     except Exception:
         body = "<no se pudo leer>"
 
+    errors = []
+    for err in exc.errors():
+        clean = {k: v for k, v in err.items() if k != "input"}
+        clean["input"] = str(err.get("input", ""))[:200]
+        errors.append(clean)
+
     logger.error(
         "422 Validation Error en %s %s — body=%s — errors=%s",
         request.method,
         request.url.path,
         body,
-        exc.errors(),
+        errors,
     )
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors()},
+        content={"detail": errors},
     )
 
 
