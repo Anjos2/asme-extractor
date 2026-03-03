@@ -50,6 +50,9 @@ class ExtractionResponse(BaseModel):
     extraction: dict
     duplicate_found: bool = False
     existing_data: dict | None = None
+    is_range: bool = False
+    range_count: int = 0
+    range_serials: list[str] = []
 
 
 class SaveRequest(BaseModel):
@@ -74,9 +77,10 @@ class SaveRequest(BaseModel):
 class SaveResponse(BaseModel):
     """Confirmacion de guardado en Glide."""
 
-    row_id: str
+    row_id: str | None = None
     action: str
     message: str
+    count: int = 1
 
 
 class TanqueResponse(BaseModel):

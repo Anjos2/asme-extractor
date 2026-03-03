@@ -71,6 +71,15 @@ async def save_data(request: SaveRequest):
     except ValueError as e:
         raise HTTPException(400, str(e))
 
+    if result["action"] == "range":
+        count = result["count"]
+        return SaveResponse(
+            row_id=None,
+            action="range",
+            message=f"Rango {result['serial_range']}: {count} tanques procesados ({result['created']} creados, {result['updated']} actualizados)",
+            count=count,
+        )
+
     action_msg = "actualizado" if result["action"] == "updated" else "creado"
     return SaveResponse(
         row_id=result["row_id"],
