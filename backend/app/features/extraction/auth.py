@@ -27,11 +27,13 @@ async def verify_api_key(api_key: str | None = Security(_api_key_header)) -> Non
     settings = get_settings()
 
     if not settings.ASME_API_KEY:
+        logger.debug("Auth bypass: ASME_API_KEY no configurada (modo dev)")
         return
 
     if not api_key:
+        logger.warning("Auth fallido: header X-API-Key ausente")
         raise HTTPException(status_code=401, detail="API key requerida (header X-API-Key)")
 
     if api_key != settings.ASME_API_KEY:
-        logger.warning("API key invalida recibida")
+        logger.warning("Auth fallido: API key invalida (recibida: %s...)", api_key[:8] if api_key else "None")
         raise HTTPException(status_code=401, detail="API key invalida")

@@ -10,10 +10,12 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import get_settings
 from app.features.extraction.router import router as extraction_router
@@ -39,6 +41,29 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+class RequestLogMiddleware(BaseHTTPMiddleware):
+    """Loguea cada request entrante con metodo, path y status de respuesta."""
+
+    async def dispatch(self, request: Request, call_next):
+        logger.info(
+            ">> %s %s [client=%s, content-type=%s]",
+            request.method,
+            request.url.path,
+            request.client.host if request.client else "unknown",
+            request.headers.get("content-type", "none"),
+        )
+        response = await call_next(request)
+        logger.info(
+            "<< %s %s → %d",
+            request.method,
+            request.url.path,
+            response.status_code,
+        )
+        return response
+
+
+app.add_middleware(RequestLogMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -46,6 +71,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    """Loguea errores 422 con el body recibido para diagnostico."""
+    body = None
+    try:
+        body = await request.body()
+        body = body.decode("utf-8")[:500]
+    except Exception:
+        body = "<no se pudo leer>"
+
+    logger.error(
+        "422 Validation Error en %s %s — body=%s — errors=%s",
+        request.method,
+        request.url.path,
+        body,
+        exc.errors(),
+    )
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+    )
+
 
 app.include_router(extraction_router)
 
