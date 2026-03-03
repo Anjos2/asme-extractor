@@ -57,7 +57,14 @@ async def create_tanque(data: dict) -> str:
     }
     result = await mutate_table([mutation])
 
-    row_id = result[0] if result and isinstance(result[0], str) else None
+    first = result[0] if result else None
+    if isinstance(first, dict):
+        row_id = first.get("rowID")
+    elif isinstance(first, str):
+        row_id = first
+    else:
+        row_id = None
+
     if not row_id:
         raise RuntimeError(f"Glide no retorno rowID al crear tanque: {result}")
 

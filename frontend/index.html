@@ -365,7 +365,7 @@
             document.getElementById('tab-single').style.display = tab === 'single' ? 'block' : 'none';
             document.getElementById('tab-tanques').style.display = tab === 'tanques' ? 'block' : 'none';
             document.getElementById('tab-batch').style.display = tab === 'batch' ? 'block' : 'none';
-            if (tab === 'tanques' && !dashLoaded) loadDashboard();
+            if (tab === 'tanques') loadDashboard();
             if (tab === 'batch' && !batchLoaded) loadBatchSelect();
         }
 
