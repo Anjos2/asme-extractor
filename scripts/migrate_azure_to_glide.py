@@ -443,7 +443,7 @@ async def migrate(args: argparse.Namespace) -> None:
 
             doc_data = {
                 DOCUMENTO_GLIDE_MAP["tanque_row_id"]: tanque_row_id,
-                DOCUMENTO_GLIDE_MAP["pdf_urls"]: url,
+                DOCUMENTO_GLIDE_MAP["pdf_urls"]: [url],
             }
 
             if args.dry_run:
