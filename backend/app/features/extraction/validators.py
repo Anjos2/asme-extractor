@@ -37,11 +37,14 @@ def detect_pdf_type(pdf_bytes: bytes) -> str:
     """
     text_page1 = extract_text_from_page(pdf_bytes, 0)
     text_upper = text_page1.upper()
+    # Texto sin espacios para detectar palabras rotas por OCR
+    # (ej: "CE RTIFICADO" → "CERTIFICADO")
+    text_compact = text_upper.replace(" ", "")
 
-    is_type1 = "FORM U-1A" in text_upper or (
-        "MANUFACTURER" in text_upper and "DATA REPORT" in text_upper
+    is_type1 = "FORMU-1A" in text_compact or (
+        "MANUFACTURER" in text_compact and "DATAREPORT" in text_compact
     )
-    is_type2 = "CERTIFICADO" in text_upper and "INSPECCI" in text_upper
+    is_type2 = "CERTIFICADO" in text_compact and "INSPECCI" in text_compact
 
     if is_type1 and not is_type2:
         return "TYPE_1"
