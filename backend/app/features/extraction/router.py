@@ -9,6 +9,7 @@ Endpoints API para extraccion ASME, guardado en Glide y gestion de tanques.
 - Consumido por: main.py (registro de router)
 """
 
+import json
 import logging
 from urllib.parse import urlparse
 
@@ -80,15 +81,26 @@ async def extract_pdf(file: UploadFile):
 
 
 @router.post("/extract-url", response_model=ExtractionResponse)
-async def extract_pdf_from_url(request: ExtractUrlRequest, raw_request: Request):
+async def extract_pdf_from_url(raw_request: Request):
     """Descarga un PDF desde una URL, auto-detecta tipo y extrae datos. NO guarda.
 
     Pensado para integracion con Glide: el usuario sube PDF en Glide,
     Glide envia la URL a esta API, la API descarga y procesa.
+    Acepta body JSON con cualquier Content-Type (Glide envia text/plain).
     """
+    content_type = raw_request.headers.get("content-type", "")
+    body_bytes = await raw_request.body()
+
+    try:
+        data = json.loads(body_bytes)
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error("POST /extract-url JSON parse error: %s — body=%s", e, body_bytes[:300])
+        raise HTTPException(400, f"Body debe ser JSON valido: {e}")
+
+    request = ExtractUrlRequest(**data)
     logger.info(
         "POST /extract-url — pdf_url=%s, filename=%s, content_type=%s",
-        request.pdf_url, request.filename, raw_request.headers.get("content-type"),
+        request.pdf_url, request.filename, content_type,
     )
     max_size = settings.MAX_PDF_SIZE_MB * 1024 * 1024
 
