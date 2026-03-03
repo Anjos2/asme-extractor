@@ -8,6 +8,7 @@ Orquestacion del pipeline de extraccion ASME y persistencia en Glide.
 """
 
 import logging
+import re
 
 from app.schemas import ExtractionResult
 from app.features.extraction.llm_extractor import extract_with_llm
@@ -79,37 +80,124 @@ async def extract_from_pdf(
     }
 
     if result.serial_number:
-        existing = await get_tanque_by_serie(result.serial_number)
-        if existing:
-            response["duplicate_found"] = True
-            response["existing_data"] = existing
-            logger.info(
-                "Duplicado encontrado: serie=%s, rowID=%s",
-                result.serial_number,
-                existing.get("row_id"),
-            )
+        serials = expand_serial_range(result.serial_number)
+        if len(serials) > 1:
+            response["is_range"] = True
+            response["range_count"] = len(serials)
+            response["range_serials"] = serials
+            logger.info("Rango detectado: %s → %d tanques", result.serial_number, len(serials))
+        else:
+            existing = await get_tanque_by_serie(result.serial_number)
+            if existing:
+                response["duplicate_found"] = True
+                response["existing_data"] = existing
+                logger.info(
+                    "Duplicado encontrado: serie=%s, rowID=%s",
+                    result.serial_number,
+                    existing.get("row_id"),
+                )
 
     return response
 
 
+def expand_serial_range(serial: str) -> list[str]:
+    """Expande un rango de seriales como 'M1744629-M1744662' en una lista.
+
+    Soporta formatos: 'PREFIX{start}-PREFIX{end}' o 'PREFIX{start} to PREFIX{end}'.
+    Si no es un rango, retorna [serial].
+    """
+    serial = serial.strip()
+
+    # Patron: PREFIJO+NUMEROS separador PREFIJO+NUMEROS
+    match = re.match(
+        r"^([A-Za-z]*)(\d+)\s*[-–—]\s*([A-Za-z]*)(\d+)$",
+        serial,
+    )
+    if not match:
+        match = re.match(
+            r"^([A-Za-z]*)(\d+)\s+to\s+([A-Za-z]*)(\d+)$",
+            serial,
+            re.IGNORECASE,
+        )
+
+    if not match:
+        return [serial]
+
+    prefix1, start_str, prefix2, end_str = match.groups()
+    prefix = prefix1 or prefix2
+    start_num = int(start_str)
+    end_num = int(end_str)
+
+    if end_num < start_num or (end_num - start_num) > 500:
+        logger.warning("Rango sospechoso: %s (start=%d, end=%d)", serial, start_num, end_num)
+        return [serial]
+
+    width = len(start_str)
+    return [f"{prefix}{str(n).zfill(width)}" for n in range(start_num, end_num + 1)]
+
+
 async def save_to_glide(data: dict, row_id: str | None = None) -> dict:
     """Guarda o actualiza datos confirmados en Glide.
+
+    Si serial_number es un rango (ej: M1744629-M1744662), crea/actualiza
+    un registro por cada serial en el rango con los mismos datos.
 
     Args:
         data: Dict con nombres legibles (serie, fabricante, mawp_psi, etc.)
         row_id: Si se provee, actualiza el tanque existente. Si None, crea nuevo.
 
     Returns:
-        Dict con row_id y action (created/updated).
+        Dict con row_id, action, y count (numero de tanques afectados).
     """
-    if row_id:
-        await update_tanque(row_id, data)
-        logger.info("Tanque actualizado en Glide: rowID=%s", row_id)
-        return {"row_id": row_id, "action": "updated"}
-    else:
-        new_row_id = await create_tanque(data)
-        logger.info("Tanque creado en Glide: rowID=%s", new_row_id)
-        return {"row_id": new_row_id, "action": "created"}
+    serial = data.get("serie", "")
+    serials = expand_serial_range(serial)
+
+    if len(serials) == 1:
+        # Caso simple: un solo tanque
+        if row_id:
+            await update_tanque(row_id, data)
+            logger.info("Tanque actualizado en Glide: rowID=%s", row_id)
+            return {"row_id": row_id, "action": "updated", "count": 1}
+        else:
+            new_row_id = await create_tanque(data)
+            logger.info("Tanque creado en Glide: rowID=%s", new_row_id)
+            return {"row_id": new_row_id, "action": "created", "count": 1}
+
+    # Caso rango: crear/actualizar multiples tanques con los mismos datos
+    logger.info("Rango detectado: %s → %d tanques", serial, len(serials))
+    created = 0
+    updated = 0
+    errors = 0
+
+    for s in serials:
+        tanque_data = {**data, "serie": s}
+        try:
+            existing = await get_tanque_by_serie(s)
+            if existing:
+                await update_tanque(existing["row_id"], tanque_data)
+                logger.info("  Rango: actualizado %s (rowID=%s)", s, existing["row_id"])
+                updated += 1
+            else:
+                await create_tanque(tanque_data)
+                logger.info("  Rango: creado %s", s)
+                created += 1
+        except Exception as e:
+            logger.error("  Rango: error en %s: %s", s, e)
+            errors += 1
+
+    logger.info(
+        "Rango %s completado: %d creados, %d actualizados, %d errores",
+        serial, created, updated, errors,
+    )
+    return {
+        "row_id": None,
+        "action": "range",
+        "count": created + updated,
+        "created": created,
+        "updated": updated,
+        "errors": errors,
+        "serial_range": serial,
+    }
 
 
 async def check_duplicate(serial_number: str) -> dict:
