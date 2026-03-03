@@ -47,11 +47,13 @@ class ExtractUrlRequest(BaseModel):
 
     Con auto_save=True, extrae y guarda automaticamente en Glide (flujo Glide).
     Con auto_save=False (default), solo extrae (flujo frontend con revision humana).
+    row_id permite especificar la fila exacta a actualizar en Glide.
     """
 
     pdf_url: str
     filename: str | None = None
     auto_save: bool = False
+    row_id: str | None = None
 
 
 class ExtractionResponse(BaseModel):

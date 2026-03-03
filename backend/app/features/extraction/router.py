@@ -171,7 +171,12 @@ async def extract_pdf_from_url(raw_request: Request):
         }
         save_data = {k: v for k, v in save_data.items() if v is not None}
 
-        row_id = result.get("existing_data", {}).get("row_id") if result.get("duplicate_found") else None
+        # Prioridad: row_id del request > row_id del duplicado > crear nuevo
+        row_id = request.row_id
+        if not row_id and result.get("duplicate_found"):
+            row_id = result.get("existing_data", {}).get("row_id")
+        logger.info("POST /extract-url auto_save — row_id=%s (source=%s)",
+                     row_id, "request" if request.row_id else ("duplicate" if row_id else "new"))
 
         try:
             save_result = await save_to_glide(data=save_data, row_id=row_id)
