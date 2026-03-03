@@ -678,11 +678,12 @@
                         const res = await apiFetch(API + '/api/extract-url', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ pdf_url: url }),
+                            body: JSON.stringify({ pdf_url: url, auto_save: true }),
                         });
                         const data = await res.json();
                         if (res.ok && data.extraction) {
-                            batchResults.push({ row_id: t.tanque_row_id, serie: data.extraction.serial_number || serie, extraction: data.extraction, pdf_type: data.pdf_type, status: 'extracted', error: null });
+                            const st = data.saved ? 'saved' : 'extracted';
+                            batchResults.push({ row_id: t.tanque_row_id, serie: data.extraction.serial_number || serie, extraction: data.extraction, pdf_type: data.pdf_type, status: st, error: null, save_result: data.save_result });
                             ok = true;
                             break;
                         }
@@ -695,7 +696,8 @@
 
             if (!batchCancelled) {
                 document.getElementById('ext-fill').style.width = '100%';
-                document.getElementById('ext-label').textContent = 'Extraccion completada';
+                const savedCount = batchResults.filter(r => r.status === 'saved').length;
+                document.getElementById('ext-label').textContent = 'Completado: ' + savedCount + ' extraidos y guardados';
             }
 
             setTimeout(() => showResults(), 400);
@@ -758,16 +760,15 @@
 
             h += '</tbody></table></div>';
 
+            h += '<div class="batch-bar" style="margin-top:20px">';
+            h += '<button class="btn btn-secondary" onclick="resetBatch()">Volver a seleccion</button>';
             if (ext.length) {
-                h += '<div class="batch-bar" style="margin-top:20px">';
-                h += '<button class="btn btn-secondary" onclick="resetBatch()">Volver a seleccion</button>';
                 h += '<div style="display:flex;gap:12px;align-items:center">';
                 h += '<span class="batch-count" id="res-count">' + ext.length + ' para guardar</span>';
                 h += '<button class="btn btn-primary" id="btn-save-batch" onclick="saveBatch()">Guardar seleccionados</button>';
-                h += '</div></div>';
-            } else {
-                h += '<div style="text-align:center;margin-top:20px"><button class="btn btn-primary" onclick="resetBatch()">Volver a seleccion</button></div>';
+                h += '</div>';
             }
+            h += '</div>';
 
             h += '</div>';
             c.innerHTML = h;

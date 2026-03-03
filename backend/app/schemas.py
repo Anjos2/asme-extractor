@@ -43,14 +43,19 @@ class ExtractionResult(BaseModel):
 
 
 class ExtractUrlRequest(BaseModel):
-    """Request para extraer datos desde una URL de PDF (integracion Glide)."""
+    """Request para extraer datos desde una URL de PDF (integracion Glide).
+
+    Con auto_save=True, extrae y guarda automaticamente en Glide (flujo Glide).
+    Con auto_save=False (default), solo extrae (flujo frontend con revision humana).
+    """
 
     pdf_url: str
     filename: str | None = None
+    auto_save: bool = False
 
 
 class ExtractionResponse(BaseModel):
-    """Respuesta al frontend tras extraer datos (sin guardar aun)."""
+    """Respuesta tras extraer datos. Con auto_save incluye resultado de guardado."""
 
     pdf_type: str
     filename: str
@@ -60,6 +65,8 @@ class ExtractionResponse(BaseModel):
     is_range: bool = False
     range_count: int = 0
     range_serials: list[str] = []
+    saved: bool = False
+    save_result: dict | None = None
 
 
 class SaveRequest(BaseModel):

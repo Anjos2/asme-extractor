@@ -1,7 +1,8 @@
 """
 Endpoints API para extraccion ASME, guardado en Glide y gestion de tanques.
 - Finalidad: Capa HTTP que recibe requests y delega a service.py y glide/repository.py.
-  Endpoints: /extract, /extract-url, /save, /tanques, /tanques/{serie}/check, /batch/process.
+  Endpoints: /extract, /extract-url (con auto_save), /save, /tanques, /tanques/{serie}/check, /batch/process.
+  /extract-url acepta auto_save=True para extraer y guardar en un solo paso (flujo Glide).
   Todos protegidos con API key via auth.py.
 - Consume: service.py (extract, save, check), schemas.py (request/response),
   validators.py (PDFTypeError), config.py (MAX_PDF_SIZE_MB), auth.py (verify_api_key),
@@ -144,10 +145,44 @@ async def extract_pdf_from_url(raw_request: Request):
         logger.error("POST /extract-url RuntimeError: %s", e)
         raise HTTPException(500, str(e))
 
+    serie = result.get("extraction", {}).get("serial_number")
     logger.info(
         "POST /extract-url OK — type=%s, serie=%s, filename=%s",
-        result.get("pdf_type"), result.get("extraction", {}).get("serial_number"), filename,
+        result.get("pdf_type"), serie, filename,
     )
+
+    if request.auto_save and serie:
+        logger.info("POST /extract-url auto_save=True, guardando serie=%s", serie)
+        ext = result.get("extraction", {})
+        save_data = {
+            "serie": serie,
+            "fabricante": ext.get("fabricante"),
+            "ano_fabricacion": ext.get("ano_fabricacion"),
+            "asme_code_edition": ext.get("asme_code_edition"),
+            "mawp_psi": str(ext["mawp_psi"]) if ext.get("mawp_psi") is not None else None,
+            "hydro_test_pressure_psi": str(ext["hydro_test_pressure_psi"]) if ext.get("hydro_test_pressure_psi") is not None else None,
+            "material_cuerpo": ext.get("material_cuerpo"),
+            "espesor_cuerpo_mm": str(ext["espesor_cuerpo_mm"]) if ext.get("espesor_cuerpo_mm") is not None else None,
+            "longitud_cuerpo_m": str(ext["longitud_cuerpo_m"]) if ext.get("longitud_cuerpo_m") is not None else None,
+            "diametro_interior_m": str(ext["diametro_interior_m"]) if ext.get("diametro_interior_m") is not None else None,
+            "material_cabezales": ext.get("material_cabezales"),
+            "espesor_cabezales_mm": str(ext["espesor_cabezales_mm"]) if ext.get("espesor_cabezales_mm") is not None else None,
+            "fecha_certificacion": str(ext["fecha_certificacion"]) if ext.get("fecha_certificacion") is not None else None,
+        }
+        save_data = {k: v for k, v in save_data.items() if v is not None}
+
+        row_id = result.get("existing_data", {}).get("row_id") if result.get("duplicate_found") else None
+
+        try:
+            save_result = await save_to_glide(data=save_data, row_id=row_id)
+            result["saved"] = True
+            result["save_result"] = save_result
+            logger.info("POST /extract-url auto_save OK — action=%s, row_id=%s", save_result.get("action"), save_result.get("row_id"))
+        except Exception as e:
+            logger.error("POST /extract-url auto_save error: %s", e)
+            result["saved"] = False
+            result["save_result"] = {"error": str(e)}
+
     return ExtractionResponse(**result)
 
 
