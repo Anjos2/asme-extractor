@@ -1,7 +1,7 @@
 <!--
-  Frontend del ASME Pressure Vessel Data Extractor v2.1.
-  - Finalidad: Login con API key, zona unica de upload con auto-detect, formulario
-    editable, confirmacion antes de guardar en Glide, tab batch para procesar desde Glide.
+  Frontend del ASME Pressure Vessel Data Extractor v2.2.
+  - Finalidad: Login con API key, 3 tabs (Subir PDF, Dashboard tanques,
+    Procesar Lote con batch real), formulario editable, guardado en Glide.
   - Consume: API backend (POST /api/extract, POST /api/extract-url, POST /api/save,
     GET /api/tanques, GET /api/tanques/pendientes, POST /api/batch/process)
   - Consumido por: main.py (servido como static file), Glide (via iframe)
@@ -20,7 +20,8 @@
         .header h1 { font-size: 1.4rem; font-weight: 600; }
         .header p { font-size: 0.85rem; opacity: 0.7; margin-top: 4px; }
 
-        .container { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+        .narrow { max-width: 700px; margin: 0 auto; }
 
         /* Tabs */
         .tabs { display: flex; gap: 0; margin-bottom: 24px; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
@@ -89,21 +90,46 @@
         .btn-warning:hover { background: #d97706; }
         .btn-sm { padding: 6px 14px; font-size: 0.75rem; }
 
-        /* Batch tab */
-        .batch-section { display: none; }
-        .batch-section.visible { display: block; }
-        .batch-list { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-        .batch-list h2 { font-size: 1.1rem; margin-bottom: 16px; color: #1e293b; }
+        /* Card */
+        .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .card h2 { font-size: 1.1rem; margin-bottom: 16px; color: #1e293b; }
 
+        /* Dashboard */
+        .dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+        .dashboard-header h2 { margin-bottom: 0; }
+        .dashboard-summary { font-size: 0.85rem; color: #64748b; }
+        .count-ok { color: #16a34a; font-weight: 600; }
+        .count-warn { color: #f59e0b; font-weight: 600; }
+
+        /* Tables */
+        .table-scroll { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-        th { text-align: left; padding: 10px 12px; background: #f1f5f9; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.5px; }
-        td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+        th { text-align: left; padding: 10px 12px; background: #f1f5f9; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.5px; white-space: nowrap; }
+        td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #334155; white-space: nowrap; }
         tr:hover td { background: #f8fafc; }
+        tr.row-ok td { background: #f0fdf4; }
+        tr.row-ok:hover td { background: #dcfce7; }
+        .text-right { text-align: right; }
         .cb-cell { width: 40px; text-align: center; }
         .cb-cell input { width: 16px; height: 16px; cursor: pointer; }
 
-        .batch-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; }
+        /* Badges */
+        .badge-s { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 600; }
+        .badge-extracted { background: #dcfce7; color: #166534; }
+        .badge-error { background: #fee2e2; color: #991b1b; }
+        .badge-no-pdf { background: #f1f5f9; color: #64748b; }
+        .badge-saved { background: #dbeafe; color: #1e40af; }
+        .badge-save-err { background: #fee2e2; color: #991b1b; }
+
+        /* Batch actions bar */
+        .batch-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; }
         .batch-count { font-size: 0.8rem; color: #64748b; }
+
+        /* Expand row */
+        .expand-row td { padding: 16px; background: #fafbfc; }
+        .expand-row:hover td { background: #fafbfc; }
+        .expand-toggle { background: none; border: none; cursor: pointer; color: #64748b; font-size: 0.85rem; padding: 4px 8px; border-radius: 4px; }
+        .expand-toggle:hover { background: #e2e8f0; }
 
         .empty-state { text-align: center; padding: 40px; color: #94a3b8; font-size: 0.9rem; }
 
@@ -113,7 +139,7 @@
         .toast.success { background: #16a34a; }
         .toast.error { background: #dc2626; }
 
-        /* Login screen */
+        /* Login */
         .login-screen { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 80px); }
         .login-card { background: white; border-radius: 12px; padding: 40px 32px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 400px; width: 100%; text-align: center; }
         .login-card h2 { font-size: 1.2rem; color: #1e293b; margin-bottom: 8px; }
@@ -125,7 +151,6 @@
         .app-content { display: none; }
         .app-content.visible { display: block; }
 
-        /* Status message */
         .status-msg { margin-top: 10px; font-size: 0.8rem; font-weight: 500; }
         .status-msg.success { color: #16a34a; }
         .status-msg.error { color: #dc2626; }
@@ -136,6 +161,7 @@
             .btn { width: 100%; text-align: center; }
             table { font-size: 0.7rem; }
             th, td { padding: 8px 6px; }
+            .dashboard-header { flex-direction: column; align-items: flex-start; }
         }
     </style>
 </head>
@@ -145,7 +171,7 @@
         <p>Extraccion automatica de certificados ASME mediante Vision Artificial (IA)</p>
     </div>
 
-    <!-- Login screen -->
+    <!-- Login -->
     <div class="login-screen" id="login-screen">
         <div class="login-card">
             <h2>Acceso al Extractor ASME</h2>
@@ -161,11 +187,13 @@
         <!-- Tabs -->
         <div class="tabs">
             <div class="tab active" data-tab="single" onclick="switchTab('single')">Subir PDF</div>
-            <div class="tab" data-tab="batch" onclick="switchTab('batch')">Procesar desde Glide</div>
+            <div class="tab" data-tab="tanques" onclick="switchTab('tanques')">Tanques</div>
+            <div class="tab" data-tab="batch" onclick="switchTab('batch')">Procesar Lote</div>
         </div>
 
         <!-- TAB 1: Single upload -->
         <div id="tab-single">
+          <div class="narrow">
             <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
                 <div class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
                 <h3>Arrastra tu PDF aqui o haz clic para seleccionar</h3>
@@ -183,7 +211,6 @@
             <div class="form-section" id="form-section">
                 <h2>Datos Extraidos por Vision Artificial</h2>
                 <div class="form-meta" id="form-meta"></div>
-
                 <div class="duplicate-warning" id="duplicate-warning">
                     <div class="dw-title" id="dw-title"></div>
                     <div id="dw-details" style="font-size:0.8rem;color:#78350f;"></div>
@@ -192,33 +219,30 @@
                         <button class="btn btn-secondary btn-sm" onclick="dismissDuplicate()">Crear nuevo de todos modos</button>
                     </div>
                 </div>
-
                 <div class="warnings-bar" id="warnings-bar"></div>
-
                 <div class="form-grid" id="form-grid"></div>
-
                 <div class="form-actions">
                     <button class="btn btn-secondary" onclick="resetForm()">Cancelar</button>
                     <button class="btn btn-primary" id="btn-save" onclick="saveToGlide()">Guardar en Glide</button>
                 </div>
             </div>
+          </div>
         </div>
 
-        <!-- TAB 2: Batch -->
-        <div id="tab-batch" class="batch-section">
-            <div class="batch-list">
-                <h2>Tanques pendientes de datos LIBRO DIGITAL</h2>
-                <div id="batch-content">
-                    <div class="empty-state">Haz clic en "Cargar tanques" para consultar Glide</div>
+        <!-- TAB 2: Dashboard -->
+        <div id="tab-tanques" style="display:none">
+            <div class="card">
+                <div class="dashboard-header">
+                    <h2>Todos los tanques</h2>
+                    <div class="dashboard-summary" id="dash-summary"></div>
                 </div>
-                <div style="text-align:center;margin:16px 0;" id="batch-load-wrapper">
-                    <button class="btn btn-primary" onclick="loadPendingTanques()">Cargar tanques</button>
-                </div>
-                <div class="batch-actions" id="batch-actions" style="display:none;">
-                    <div class="batch-count" id="batch-count">0 seleccionados</div>
-                    <button class="btn btn-primary" id="btn-batch" onclick="startBatch()">Procesar seleccionados</button>
-                </div>
+                <div id="dash-content"><div class="empty-state">Cargando...</div></div>
             </div>
+        </div>
+
+        <!-- TAB 3: Batch -->
+        <div id="tab-batch" style="display:none">
+            <div id="batch-container"></div>
         </div>
     </div>
     </div>
@@ -228,7 +252,9 @@
     <script>
         const API = window.location.origin;
 
-        /* ── Auth ── */
+        /* ══════════════════════════════════
+           AUTH
+           ══════════════════════════════════ */
         function getApiKey() { return sessionStorage.getItem('asme_api_key') || ''; }
 
         function showLogin() {
@@ -246,43 +272,31 @@
         async function attemptLogin() {
             const key = document.getElementById('login-key').value.trim();
             if (!key) return;
-
             try {
                 const res = await fetch(API + '/api/tanques', { headers: { 'X-API-Key': key } });
-                if (res.ok) {
-                    sessionStorage.setItem('asme_api_key', key);
-                    showApp();
-                } else {
-                    document.getElementById('login-error').classList.add('visible');
-                }
+                if (res.ok) { sessionStorage.setItem('asme_api_key', key); showApp(); }
+                else { document.getElementById('login-error').classList.add('visible'); }
             } catch {
                 document.getElementById('login-error').textContent = 'Error de conexion';
                 document.getElementById('login-error').classList.add('visible');
             }
         }
 
-        document.getElementById('login-key').addEventListener('keydown', e => {
-            if (e.key === 'Enter') attemptLogin();
-        });
+        document.getElementById('login-key').addEventListener('keydown', e => { if (e.key === 'Enter') attemptLogin(); });
 
         async function apiFetch(url, options = {}) {
             const key = getApiKey();
-            const headers = options.headers instanceof Headers
-                ? options.headers
-                : new Headers(options.headers || {});
+            const headers = options.headers instanceof Headers ? options.headers : new Headers(options.headers || {});
             if (key) headers.set('X-API-Key', key);
             options.headers = headers;
-
             const res = await fetch(url, options);
-            if (res.status === 401) {
-                sessionStorage.removeItem('asme_api_key');
-                showLogin();
-                throw new Error('Sesion expirada. Ingresa tu API Key nuevamente.');
-            }
+            if (res.status === 401) { sessionStorage.removeItem('asme_api_key'); showLogin(); throw new Error('Sesion expirada'); }
             return res;
         }
 
-        /* ── Helpers ── */
+        /* ══════════════════════════════════
+           HELPERS
+           ══════════════════════════════════ */
         function esc(str) {
             if (str === null || str === undefined) return '';
             const d = document.createElement('div');
@@ -297,7 +311,9 @@
             setTimeout(() => { t.classList.remove('visible'); }, 4000);
         }
 
-        /* ── Field config ── */
+        /* ══════════════════════════════════
+           FIELD CONFIG
+           ══════════════════════════════════ */
         const FIELDS = [
             { key: 'serial_number', label: 'Numero de Serie', locked: true },
             { key: 'fabricante', label: 'Fabricante' },
@@ -314,20 +330,48 @@
             { key: 'fecha_certificacion', label: 'Fecha Certificacion', type: 'date' },
         ];
 
-        /* ── State ── */
+        const DASH_COLS = [
+            { key: 'serie', label: 'Serie' },
+            { key: 'ano_fabricacion', label: 'Ano' },
+            { key: 'fabricante', label: 'Fabricante' },
+            { key: 'asme_code_edition', label: 'ASME Ed.' },
+            { key: 'mawp_psi', label: 'MAWP', r: true },
+            { key: 'hydro_test_pressure_psi', label: 'Hydro', r: true },
+            { key: 'material_cuerpo', label: 'Mat. Cuerpo' },
+            { key: 'espesor_cuerpo_mm', label: 'Esp. (mm)', r: true },
+            { key: 'longitud_cuerpo_m', label: 'Long. (m)', r: true },
+            { key: 'diametro_interior_m', label: 'Diam. (m)', r: true },
+            { key: 'material_cabezales', label: 'Mat. Cab.' },
+            { key: 'espesor_cabezales_mm', label: 'Esp.Cab.', r: true },
+            { key: 'fecha_certificacion', label: 'Fecha Cert.' },
+        ];
+
+        /* ══════════════════════════════════
+           STATE
+           ══════════════════════════════════ */
         let currentExtraction = null;
         let duplicateRowId = null;
+        let batchResults = [];
+        let batchPending = [];
+        let batchCancelled = false;
+        let dashLoaded = false;
+        let batchLoaded = false;
 
-        /* ── Tabs ── */
+        /* ══════════════════════════════════
+           TABS
+           ══════════════════════════════════ */
         function switchTab(tab) {
             document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
             document.getElementById('tab-single').style.display = tab === 'single' ? 'block' : 'none';
+            document.getElementById('tab-tanques').style.display = tab === 'tanques' ? 'block' : 'none';
             document.getElementById('tab-batch').style.display = tab === 'batch' ? 'block' : 'none';
-            document.getElementById('tab-batch').classList.toggle('visible', tab === 'batch');
-            // No auto-load: el usuario hace clic en "Cargar tanques" para consultar Glide
+            if (tab === 'tanques' && !dashLoaded) loadDashboard();
+            if (tab === 'batch' && !batchLoaded) loadBatchSelect();
         }
 
-        /* ── Upload zone ── */
+        /* ══════════════════════════════════
+           TAB 1: SINGLE UPLOAD
+           ══════════════════════════════════ */
         const zone = document.getElementById('upload-zone');
         const fileInput = document.getElementById('file-input');
 
@@ -337,26 +381,16 @@
         ['dragleave', 'drop'].forEach(evt => {
             zone.addEventListener(evt, e => { e.preventDefault(); zone.classList.remove('dragover'); });
         });
-        zone.addEventListener('drop', e => {
-            const file = e.dataTransfer.files[0];
-            if (file) handleUpload(file);
-        });
-        fileInput.addEventListener('change', () => {
-            const file = fileInput.files[0];
-            if (file) handleUpload(file);
-            fileInput.value = '';
-        });
+        zone.addEventListener('drop', e => { if (e.dataTransfer.files[0]) handleUpload(e.dataTransfer.files[0]); });
+        fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleUpload(fileInput.files[0]); fileInput.value = ''; });
 
-        /* ── Upload & Extract ── */
         async function handleUpload(file) {
             const statusEl = document.getElementById('upload-status');
-
             if (!file.name.toLowerCase().endsWith('.pdf')) {
                 statusEl.textContent = 'Solo se aceptan archivos PDF';
                 statusEl.className = 'status-msg error';
                 return;
             }
-
             resetForm();
             zone.classList.add('disabled');
             statusEl.textContent = '';
@@ -365,102 +399,65 @@
             const fill = document.getElementById('progress-fill');
             const label = document.getElementById('progress-label');
             progress.classList.add('visible');
-
             label.textContent = 'Analizando PDF...';
             fill.style.width = '20%';
 
-            const formData = new FormData();
-            formData.append('file', file);
-
+            const fd = new FormData();
+            fd.append('file', file);
             setTimeout(() => { label.textContent = 'Extrayendo datos con Vision Artificial...'; fill.style.width = '50%'; }, 2000);
             setTimeout(() => { fill.style.width = '70%'; }, 5000);
 
             try {
-                const res = await apiFetch(API + '/api/extract', { method: 'POST', body: formData });
+                const res = await apiFetch(API + '/api/extract', { method: 'POST', body: fd });
                 const data = await res.json();
-
                 if (!res.ok) throw new Error(data.detail || 'Error desconocido');
-
                 fill.style.width = '100%';
                 label.textContent = 'Listo';
-
-                setTimeout(() => {
-                    progress.classList.remove('visible');
-                    showExtractionForm(data);
-                }, 500);
+                setTimeout(() => { progress.classList.remove('visible'); showExtractionForm(data); }, 500);
             } catch (err) {
                 progress.classList.remove('visible');
                 statusEl.textContent = err.message;
                 statusEl.className = 'status-msg error';
-            } finally {
-                zone.classList.remove('disabled');
-            }
+            } finally { zone.classList.remove('disabled'); }
         }
 
-        /* ── Show extraction form ── */
         function showExtractionForm(data) {
             currentExtraction = data;
             duplicateRowId = null;
-            const extraction = data.extraction || {};
+            const ext = data.extraction || {};
 
             const meta = document.getElementById('form-meta');
-            const typeLabel = data.pdf_type === 'TYPE_1' ? 'Formulario U-1A' : 'Certificado de Inspeccion';
-            const badgeClass = data.pdf_type === 'TYPE_1' ? 'type1' : 'type2';
-            meta.innerHTML = '<span class="badge ' + badgeClass + '">' + esc(typeLabel) + '</span> ' + esc(data.filename);
+            const tl = data.pdf_type === 'TYPE_1' ? 'Formulario U-1A' : 'Certificado de Inspeccion';
+            meta.innerHTML = '<span class="badge ' + (data.pdf_type === 'TYPE_1' ? 'type1' : 'type2') + '">' + esc(tl) + '</span> ' + esc(data.filename);
 
-            // Warnings
-            const warnings = extraction.warnings || [];
-            const warningsBar = document.getElementById('warnings-bar');
-            if (warnings.length > 0) {
-                warningsBar.innerHTML = '<strong>Advertencias:</strong> ' + warnings.map(w => esc(w)).join(' | ');
-                warningsBar.classList.add('visible');
-            } else {
-                warningsBar.classList.remove('visible');
-            }
+            const warnings = ext.warnings || [];
+            const wb = document.getElementById('warnings-bar');
+            if (warnings.length) { wb.innerHTML = '<strong>Advertencias:</strong> ' + warnings.map(w => esc(w)).join(' | '); wb.classList.add('visible'); }
+            else { wb.classList.remove('visible'); }
 
-            const warningFields = new Set(warnings.map(w => { const m = w.match(/'([^']+)'/); return m ? m[1] : ''; }));
+            const wf = new Set(warnings.map(w => { const m = w.match(/'([^']+)'/); return m ? m[1] : ''; }));
 
-            // Duplicate warning
             const dw = document.getElementById('duplicate-warning');
             if (data.duplicate_found && data.existing_data) {
-                const serie = extraction.serial_number || '?';
-                document.getElementById('dw-title').textContent = 'Tanque ' + serie + ' ya existe en Glide';
-                const existing = data.existing_data;
-                const details = ['fabricante', 'mawp_psi', 'fecha_certificacion']
-                    .filter(k => existing[k])
-                    .map(k => k + ': ' + existing[k])
-                    .join(' | ');
-                document.getElementById('dw-details').textContent = details || 'Datos existentes disponibles';
-                duplicateRowId = existing.row_id || null;
+                document.getElementById('dw-title').textContent = 'Tanque ' + (ext.serial_number || '?') + ' ya existe en Glide';
+                const ex = data.existing_data;
+                document.getElementById('dw-details').textContent = ['fabricante','mawp_psi','fecha_certificacion'].filter(k => ex[k]).map(k => k + ': ' + ex[k]).join(' | ') || 'Datos existentes disponibles';
+                duplicateRowId = ex.row_id || null;
                 dw.classList.add('visible');
-            } else {
-                dw.classList.remove('visible');
-            }
+            } else { dw.classList.remove('visible'); }
 
-            // Build form fields
             const grid = document.getElementById('form-grid');
             grid.innerHTML = '';
-
-            for (const field of FIELDS) {
-                const val = extraction[field.key];
-                const isWarning = warningFields.has(field.key);
-                const rawVal = field.raw ? extraction[field.raw] : null;
-
+            for (const f of FIELDS) {
+                const val = ext[f.key];
+                const rawVal = f.raw ? ext[f.raw] : null;
                 const div = document.createElement('div');
-                div.className = 'form-field' + (isWarning ? ' warning' : '');
-
-                let inputType = 'text';
-                if (field.type === 'number') inputType = 'text';
-                if (field.type === 'date') inputType = 'date';
-
-                const inputVal = val !== null && val !== undefined ? val : '';
-
-                div.innerHTML =
-                    '<label>' + esc(field.label) + '</label>' +
-                    '<input type="' + inputType + '" name="' + field.key + '" value="' + esc(String(inputVal)) + '"' +
-                    (field.locked ? ' class="locked" readonly' : '') + '>' +
+                div.className = 'form-field' + (wf.has(f.key) ? ' warning' : '');
+                const iv = val != null ? val : '';
+                div.innerHTML = '<label>' + esc(f.label) + '</label>' +
+                    '<input type="' + (f.type === 'date' ? 'date' : 'text') + '" name="' + f.key + '" value="' + esc(String(iv)) + '"' +
+                    (f.locked ? ' class="locked" readonly' : '') + '>' +
                     (rawVal ? '<div class="raw-hint">Original: ' + esc(rawVal) + '</div>' : '');
-
                 grid.appendChild(div);
             }
 
@@ -469,7 +466,6 @@
             document.getElementById('btn-save').disabled = false;
         }
 
-        /* ── Duplicate actions ── */
         function enableUpdate() {
             document.getElementById('btn-save').textContent = 'Actualizar en Glide';
             document.getElementById('duplicate-warning').classList.remove('visible');
@@ -481,54 +477,25 @@
             document.getElementById('btn-save').textContent = 'Guardar en Glide';
         }
 
-        /* ── Save to Glide ── */
         async function saveToGlide() {
             const btn = document.getElementById('btn-save');
-            btn.disabled = true;
-            btn.textContent = 'Guardando...';
+            btn.disabled = true; btn.textContent = 'Guardando...';
 
-            const formData = {};
-            const inputs = document.querySelectorAll('#form-grid input');
-            inputs.forEach(input => {
-                const val = input.value.trim();
-                if (val) formData[input.name] = val;
-            });
-
-            if (!formData.serial_number) {
-                showToast('El numero de serie es obligatorio', 'error');
-                btn.disabled = false;
-                btn.textContent = 'Guardar en Glide';
-                return;
-            }
-
-            const payload = {
-                serie: formData.serial_number,
-                ano_fabricacion: formData.ano_fabricacion || null,
-                fabricante: formData.fabricante || null,
-                asme_code_edition: formData.asme_code_edition || null,
-                mawp_psi: formData.mawp_psi || null,
-                hydro_test_pressure_psi: formData.hydro_test_pressure_psi || null,
-                material_cuerpo: formData.material_cuerpo || null,
-                espesor_cuerpo_mm: formData.espesor_cuerpo_mm || null,
-                longitud_cuerpo_m: formData.longitud_cuerpo_m || null,
-                diametro_interior_m: formData.diametro_interior_m || null,
-                material_cabezales: formData.material_cabezales || null,
-                espesor_cabezales_mm: formData.espesor_cabezales_mm || null,
-                fecha_certificacion: formData.fecha_certificacion || null,
-                row_id: duplicateRowId || null,
-            };
+            const fd = {};
+            document.querySelectorAll('#form-grid input').forEach(inp => { const v = inp.value.trim(); if (v) fd[inp.name] = v; });
+            if (!fd.serial_number) { showToast('El numero de serie es obligatorio', 'error'); btn.disabled = false; btn.textContent = 'Guardar en Glide'; return; }
 
             try {
                 const res = await apiFetch(API + '/api/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
+                    body: JSON.stringify(buildPayload(fd, duplicateRowId)),
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.detail || 'Error al guardar');
-
                 showToast(data.message, 'success');
                 resetForm();
+                dashLoaded = false;
             } catch (err) {
                 showToast(err.message, 'error');
                 btn.disabled = false;
@@ -536,7 +503,25 @@
             }
         }
 
-        /* ── Reset ── */
+        function buildPayload(fd, rowId) {
+            return {
+                serie: fd.serial_number || fd.serie || '',
+                ano_fabricacion: fd.ano_fabricacion || null,
+                fabricante: fd.fabricante || null,
+                asme_code_edition: fd.asme_code_edition || null,
+                mawp_psi: fd.mawp_psi || null,
+                hydro_test_pressure_psi: fd.hydro_test_pressure_psi || null,
+                material_cuerpo: fd.material_cuerpo || null,
+                espesor_cuerpo_mm: fd.espesor_cuerpo_mm || null,
+                longitud_cuerpo_m: fd.longitud_cuerpo_m || null,
+                diametro_interior_m: fd.diametro_interior_m || null,
+                material_cabezales: fd.material_cabezales || null,
+                espesor_cabezales_mm: fd.espesor_cabezales_mm || null,
+                fecha_certificacion: fd.fecha_certificacion || null,
+                row_id: rowId || null,
+            };
+        }
+
         function resetForm() {
             document.getElementById('form-section').classList.remove('visible');
             document.getElementById('progress-section').classList.remove('visible');
@@ -548,90 +533,316 @@
             duplicateRowId = null;
         }
 
-        /* ── Batch: Load pending tanques ── */
-        async function loadPendingTanques() {
-            const container = document.getElementById('batch-content');
-            const actions = document.getElementById('batch-actions');
-            const loadWrapper = document.getElementById('batch-load-wrapper');
-            container.innerHTML = '<div class="empty-state">Cargando tanques pendientes...</div>';
-            actions.style.display = 'none';
-            loadWrapper.style.display = 'none';
+        /* ══════════════════════════════════
+           TAB 2: DASHBOARD
+           ══════════════════════════════════ */
+        async function loadDashboard() {
+            const el = document.getElementById('dash-content');
+            const sum = document.getElementById('dash-summary');
+            el.innerHTML = '<div class="empty-state">Cargando tanques...</div>';
+
+            try {
+                const res = await apiFetch(API + '/api/tanques');
+                const tanques = await res.json();
+                if (!res.ok) throw new Error('Error al cargar');
+
+                const ok = tanques.filter(t => !!t.fabricante).length;
+                const pend = tanques.length - ok;
+                sum.innerHTML = tanques.length + ' tanques — <span class="count-ok">' + ok + ' completos</span>, <span class="count-warn">' + pend + ' pendientes</span>';
+
+                if (!tanques.length) { el.innerHTML = '<div class="empty-state">No hay tanques registrados</div>'; dashLoaded = true; return; }
+
+                let h = '<div class="table-scroll"><table><thead><tr>';
+                for (const c of DASH_COLS) h += '<th' + (c.r ? ' class="text-right"' : '') + '>' + esc(c.label) + '</th>';
+                h += '</tr></thead><tbody>';
+                for (const t of tanques) {
+                    h += '<tr' + (t.fabricante ? ' class="row-ok"' : '') + '>';
+                    for (const c of DASH_COLS) h += '<td' + (c.r ? ' class="text-right"' : '') + '>' + (esc(t[c.key]) || '\u2014') + '</td>';
+                    h += '</tr>';
+                }
+                h += '</tbody></table></div>';
+                el.innerHTML = h;
+                dashLoaded = true;
+            } catch (err) { el.innerHTML = '<div class="empty-state">Error: ' + esc(err.message) + '</div>'; }
+        }
+
+        /* ══════════════════════════════════
+           TAB 3: BATCH — Paso 1: Seleccionar
+           ══════════════════════════════════ */
+        async function loadBatchSelect() {
+            const c = document.getElementById('batch-container');
+            c.innerHTML = '<div class="card"><h2>Tanques pendientes de datos LIBRO DIGITAL</h2><div class="empty-state">Cargando...</div></div>';
 
             try {
                 const res = await apiFetch(API + '/api/tanques/pendientes');
                 const tanques = await res.json();
+                if (!res.ok) throw new Error('Error al cargar');
+                batchPending = tanques;
+                batchLoaded = true;
 
-                if (!res.ok) throw new Error('Error al cargar tanques');
-
-                if (tanques.length === 0) {
-                    container.innerHTML = '<div class="empty-state">Todos los tanques ya tienen datos de LIBRO DIGITAL</div>';
+                if (!tanques.length) {
+                    c.innerHTML = '<div class="card"><h2>Tanques pendientes</h2><div class="empty-state">Todos los tanques ya tienen datos de LIBRO DIGITAL</div></div>';
                     return;
                 }
-
-                let html = '<table><thead><tr>' +
-                    '<th class="cb-cell"><input type="checkbox" onchange="toggleAllBatch(this)"></th>' +
-                    '<th>Serie</th><th>Fabricante</th><th>Ano</th>' +
-                    '</tr></thead><tbody>';
-
-                for (const t of tanques) {
-                    html += '<tr>' +
-                        '<td class="cb-cell"><input type="checkbox" class="batch-cb" value="' + esc(t.row_id) + '" onchange="updateBatchCount()"></td>' +
-                        '<td>' + (esc(t.serie) || '—') + '</td>' +
-                        '<td>' + (esc(t.fabricante) || '—') + '</td>' +
-                        '<td>' + (esc(t.ano_fabricacion) || '—') + '</td>' +
-                        '</tr>';
-                }
-                html += '</tbody></table>';
-                container.innerHTML = html;
-                actions.style.display = 'flex';
-                updateBatchCount();
+                renderSelectTable();
             } catch (err) {
-                container.innerHTML = '<div class="empty-state">Error al cargar tanques: ' + esc(err.message) + '</div>';
-                loadWrapper.style.display = 'block';
+                c.innerHTML = '<div class="card"><h2>Tanques pendientes</h2><div class="empty-state">Error: ' + esc(err.message) + '</div><div style="text-align:center;margin-top:16px"><button class="btn btn-primary" onclick="loadBatchSelect()">Reintentar</button></div></div>';
             }
         }
 
-        function toggleAllBatch(master) {
-            document.querySelectorAll('.batch-cb').forEach(cb => { cb.checked = master.checked; });
-            updateBatchCount();
+        function renderSelectTable() {
+            const c = document.getElementById('batch-container');
+            let h = '<div class="card"><h2>Tanques pendientes de datos LIBRO DIGITAL</h2>';
+            h += '<div class="table-scroll"><table><thead><tr>';
+            h += '<th class="cb-cell"><input type="checkbox" onchange="toggleAll(this,\'.sel-cb\')"></th>';
+            h += '<th>Serie</th><th>Ano</th><th>Fabricante</th>';
+            h += '</tr></thead><tbody>';
+            for (const t of batchPending) {
+                h += '<tr><td class="cb-cell"><input type="checkbox" class="sel-cb" value="' + esc(t.row_id) + '" data-serie="' + esc(t.serie) + '" onchange="updSelCount()"></td>';
+                h += '<td>' + (esc(t.serie) || '\u2014') + '</td><td>' + (esc(t.ano_fabricacion) || '\u2014') + '</td><td>' + (esc(t.fabricante) || '\u2014') + '</td></tr>';
+            }
+            h += '</tbody></table></div>';
+            h += '<div class="batch-bar"><div class="batch-count" id="sel-count">0 seleccionados</div>';
+            h += '<button class="btn btn-primary" id="btn-start" onclick="startBatch()" disabled>Procesar seleccionados</button></div></div>';
+            c.innerHTML = h;
         }
 
-        function updateBatchCount() {
-            const checked = document.querySelectorAll('.batch-cb:checked').length;
-            document.getElementById('batch-count').textContent = checked + ' seleccionado' + (checked !== 1 ? 's' : '');
-            document.getElementById('btn-batch').disabled = checked === 0;
+        function toggleAll(master, cls) { document.querySelectorAll(cls).forEach(cb => { cb.checked = master.checked; }); updSelCount(); }
+
+        function updSelCount() {
+            const n = document.querySelectorAll('.sel-cb:checked').length;
+            document.getElementById('sel-count').textContent = n + ' seleccionado' + (n !== 1 ? 's' : '');
+            document.getElementById('btn-start').disabled = n === 0;
         }
 
-        /* ── Batch: Process ── */
+        /* ══════════════════════════════════
+           TAB 3: BATCH — Pasos 2-5
+           ══════════════════════════════════ */
         async function startBatch() {
-            const selected = Array.from(document.querySelectorAll('.batch-cb:checked')).map(cb => cb.value);
-            if (selected.length === 0) return;
+            const cbs = Array.from(document.querySelectorAll('.sel-cb:checked'));
+            if (!cbs.length) return;
 
-            const btn = document.getElementById('btn-batch');
-            btn.disabled = true;
-            btn.textContent = 'Obteniendo PDFs...';
+            const ids = cbs.map(cb => cb.value);
+            const serieMap = {};
+            cbs.forEach(cb => { serieMap[cb.value] = cb.dataset.serie || '?'; });
+            batchResults = [];
+            batchCancelled = false;
 
+            const c = document.getElementById('batch-container');
+
+            /* Paso 2: Obtener URLs */
+            c.innerHTML = '<div class="card"><h2>Obteniendo documentos...</h2><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:15%"></div></div><div class="progress-label">Consultando Glide para ' + ids.length + ' tanques...</div></div>';
+
+            let batchData;
             try {
                 const res = await apiFetch(API + '/api/batch/process', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(selected),
+                    body: JSON.stringify(ids),
                 });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || 'Error en batch');
-
-                const totalPdfs = data.total_pdfs || 0;
-                showToast('Se encontraron ' + totalPdfs + ' PDFs para procesar.', totalPdfs > 0 ? 'success' : 'error');
+                batchData = await res.json();
+                if (!res.ok) throw new Error(batchData.detail || 'Error en batch');
             } catch (err) {
-                showToast('Error: ' + err.message, 'error');
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'Procesar seleccionados';
+                c.innerHTML = '<div class="card"><h2>Error</h2><div class="empty-state">' + esc(err.message) + '</div><div style="text-align:center;margin-top:16px"><button class="btn btn-primary" onclick="renderSelectTable()">Volver</button></div></div>';
+                return;
             }
+
+            const withPdf = batchData.tanques.filter(t => t.doc_count > 0);
+            const noPdf = batchData.tanques.filter(t => t.doc_count === 0);
+
+            for (const t of noPdf) {
+                batchResults.push({ row_id: t.tanque_row_id, serie: serieMap[t.tanque_row_id] || '?', extraction: null, status: 'no_pdf', error: null });
+            }
+
+            if (!withPdf.length) { showResults(); return; }
+
+            /* Paso 3: Extraer */
+            const total = withPdf.length;
+            c.innerHTML = '<div class="card"><h2>Extrayendo datos con Vision Artificial</h2>' +
+                '<div class="progress-bar-bg"><div class="progress-bar-fill" id="ext-fill" style="width:0%"></div></div>' +
+                '<div class="progress-label" id="ext-label">Preparando...</div>' +
+                '<div class="progress-time">Cada tanque ~30-60s. ' + total + ' tanques = ~' + Math.ceil(total * 0.5) + '-' + total + ' min</div>' +
+                '<div style="text-align:center;margin-top:20px"><button class="btn btn-secondary" onclick="batchCancelled=true">Cancelar</button></div></div>';
+
+            for (let i = 0; i < withPdf.length; i++) {
+                if (batchCancelled) break;
+                const t = withPdf[i];
+                const serie = serieMap[t.tanque_row_id] || '?';
+                document.getElementById('ext-fill').style.width = Math.round((i / total) * 100) + '%';
+                document.getElementById('ext-label').textContent = 'Extrayendo ' + (i + 1) + '/' + total + '... (' + serie + ')';
+
+                let ok = false;
+                for (const url of t.pdf_urls) {
+                    if (batchCancelled) break;
+                    try {
+                        const res = await apiFetch(API + '/api/extract-url', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ pdf_url: url }),
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.extraction) {
+                            batchResults.push({ row_id: t.tanque_row_id, serie: data.extraction.serial_number || serie, extraction: data.extraction, pdf_type: data.pdf_type, status: 'extracted', error: null });
+                            ok = true;
+                            break;
+                        }
+                    } catch { /* try next URL */ }
+                }
+                if (!ok && !batchCancelled) {
+                    batchResults.push({ row_id: t.tanque_row_id, serie: serie, extraction: null, status: 'error', error: 'No se pudo extraer de ' + t.pdf_urls.length + ' PDF(s)' });
+                }
+            }
+
+            if (!batchCancelled) {
+                document.getElementById('ext-fill').style.width = '100%';
+                document.getElementById('ext-label').textContent = 'Extraccion completada';
+            }
+
+            setTimeout(() => showResults(), 400);
         }
 
-        /* ── Init ── */
-        document.getElementById('tab-batch').style.display = 'none';
+        /* ── Paso 4: Mostrar resultados ── */
+        function showResults() {
+            const c = document.getElementById('batch-container');
+            const ext = batchResults.filter(r => r.status === 'extracted');
+            const err = batchResults.filter(r => r.status === 'error');
+            const np = batchResults.filter(r => r.status === 'no_pdf');
+            const saved = batchResults.filter(r => r.status === 'saved');
+
+            let h = '<div class="card"><h2>Resultados de extraccion</h2>';
+            h += '<div style="font-size:0.85rem;color:#64748b;margin-bottom:16px">';
+            if (ext.length) h += '<span class="count-ok">' + ext.length + ' extraidos</span> ';
+            if (saved.length) h += '<span style="color:#3b82f6;font-weight:600">' + saved.length + ' guardados</span> ';
+            if (err.length) h += '<span style="color:#dc2626;font-weight:600">' + err.length + ' errores</span> ';
+            if (np.length) h += '<span style="color:#94a3b8;font-weight:600">' + np.length + ' sin PDF</span>';
+            if (batchCancelled) h += ' <span class="count-warn">(cancelado)</span>';
+            h += '</div>';
+
+            h += '<div class="table-scroll"><table><thead><tr>';
+            h += '<th class="cb-cell"><input type="checkbox" onchange="toggleAll(this,\'.res-cb\')" checked></th>';
+            h += '<th>Serie</th><th>Fabricante</th><th>MAWP</th><th>Material</th><th>Estado</th><th></th>';
+            h += '</tr></thead><tbody>';
+
+            for (let i = 0; i < batchResults.length; i++) {
+                const r = batchResults[i];
+                const e = r.extraction || {};
+                const canSave = r.status === 'extracted';
+
+                let badge = '';
+                if (r.status === 'extracted') badge = '<span class="badge-s badge-extracted">Extraido</span>';
+                else if (r.status === 'error') badge = '<span class="badge-s badge-error">Error</span>';
+                else if (r.status === 'no_pdf') badge = '<span class="badge-s badge-no-pdf">Sin PDF</span>';
+                else if (r.status === 'saved') badge = '<span class="badge-s badge-saved">Guardado</span>';
+                else if (r.status === 'save_error') badge = '<span class="badge-s badge-save-err">Error guardar</span>';
+
+                h += '<tr data-idx="' + i + '">';
+                h += '<td class="cb-cell">' + (canSave ? '<input type="checkbox" class="res-cb" value="' + i + '" checked onchange="updResCount()">' : '') + '</td>';
+                h += '<td>' + esc(r.serie) + '</td>';
+                h += '<td>' + (esc(e.fabricante) || '\u2014') + '</td>';
+                h += '<td class="text-right">' + (esc(e.mawp_psi) || '\u2014') + '</td>';
+                h += '<td>' + (esc(e.material_cuerpo) || '\u2014') + '</td>';
+                h += '<td>' + badge + (r.error ? '<div style="font-size:0.65rem;color:#991b1b;white-space:normal">' + esc(r.error) + '</div>' : '') + '</td>';
+                h += '<td>' + (canSave ? '<button class="expand-toggle" onclick="toggleExp(' + i + ')">&#9660;</button>' : '') + '</td>';
+                h += '</tr>';
+
+                if (canSave) {
+                    h += '<tr class="expand-row" id="exp-' + i + '" style="display:none"><td colspan="7"><div class="form-grid">';
+                    for (const f of FIELDS) {
+                        const v = e[f.key]; const iv = v != null ? v : '';
+                        h += '<div class="form-field"><label>' + esc(f.label) + '</label>';
+                        h += '<input type="' + (f.type === 'date' ? 'date' : 'text') + '" name="' + f.key + '" data-idx="' + i + '" value="' + esc(String(iv)) + '"' + (f.locked ? ' class="locked" readonly' : '') + '></div>';
+                    }
+                    h += '</div></td></tr>';
+                }
+            }
+
+            h += '</tbody></table></div>';
+
+            if (ext.length) {
+                h += '<div class="batch-bar" style="margin-top:20px">';
+                h += '<button class="btn btn-secondary" onclick="resetBatch()">Volver a seleccion</button>';
+                h += '<div style="display:flex;gap:12px;align-items:center">';
+                h += '<span class="batch-count" id="res-count">' + ext.length + ' para guardar</span>';
+                h += '<button class="btn btn-primary" id="btn-save-batch" onclick="saveBatch()">Guardar seleccionados</button>';
+                h += '</div></div>';
+            } else {
+                h += '<div style="text-align:center;margin-top:20px"><button class="btn btn-primary" onclick="resetBatch()">Volver a seleccion</button></div>';
+            }
+
+            h += '</div>';
+            c.innerHTML = h;
+        }
+
+        function toggleExp(idx) {
+            const row = document.getElementById('exp-' + idx);
+            if (!row) return;
+            const vis = row.style.display !== 'none';
+            row.style.display = vis ? 'none' : 'table-row';
+            const btn = document.querySelector('tr[data-idx="' + idx + '"] .expand-toggle');
+            if (btn) btn.innerHTML = vis ? '&#9660;' : '&#9650;';
+        }
+
+        function updResCount() {
+            const el = document.getElementById('res-count');
+            if (el) el.textContent = document.querySelectorAll('.res-cb:checked').length + ' para guardar';
+        }
+
+        /* ── Paso 5: Guardar ── */
+        async function saveBatch() {
+            const idxs = Array.from(document.querySelectorAll('.res-cb:checked')).map(cb => parseInt(cb.value));
+            if (!idxs.length) { showToast('Selecciona al menos un tanque', 'error'); return; }
+
+            const btn = document.getElementById('btn-save-batch');
+            btn.disabled = true;
+
+            let saved = 0, errors = 0;
+            for (let i = 0; i < idxs.length; i++) {
+                const idx = idxs[i];
+                const r = batchResults[idx];
+                btn.textContent = 'Guardando ' + (i + 1) + '/' + idxs.length + '...';
+
+                const fd = getResFormData(idx);
+                const payload = buildPayload(fd, r.row_id);
+
+                try {
+                    const res = await apiFetch(API + '/api/save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    if (res.ok) { saved++; batchResults[idx].status = 'saved'; }
+                    else { errors++; batchResults[idx].status = 'save_error'; const d = await res.json(); batchResults[idx].error = d.detail || 'Error'; }
+                } catch (err) { errors++; batchResults[idx].status = 'save_error'; batchResults[idx].error = err.message; }
+            }
+
+            showResults();
+            dashLoaded = false;
+            showToast(saved + ' guardado' + (saved !== 1 ? 's' : '') + (errors ? ', ' + errors + ' error' + (errors !== 1 ? 'es' : '') : ''), saved > 0 ? 'success' : 'error');
+        }
+
+        function getResFormData(idx) {
+            const expRow = document.getElementById('exp-' + idx);
+            if (expRow) {
+                const d = {};
+                expRow.querySelectorAll('input[name]').forEach(inp => { d[inp.name] = inp.value.trim() || null; });
+                return d;
+            }
+            const ext = batchResults[idx].extraction || {};
+            const d = {};
+            for (const f of FIELDS) d[f.key] = ext[f.key] || null;
+            return d;
+        }
+
+        function resetBatch() {
+            batchResults = [];
+            batchCancelled = false;
+            batchLoaded = false;
+            loadBatchSelect();
+        }
+
+        /* ══════════════════════════════════
+           INIT
+           ══════════════════════════════════ */
         if (getApiKey()) { showApp(); } else { showLogin(); }
     </script>
 </body>
