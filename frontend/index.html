@@ -1,9 +1,9 @@
 <!--
-  Frontend del ASME Pressure Vessel Data Extractor v2.
-  - Finalidad: Zona unica de upload con auto-detect, formulario editable,
-    confirmacion antes de guardar en Glide, tab batch para procesar desde Glide.
-  - Consume: API backend (POST /api/extract, POST /api/save, GET /api/tanques,
-    GET /api/tanques/pendientes, POST /api/batch/process)
+  Frontend del ASME Pressure Vessel Data Extractor v2.1.
+  - Finalidad: Login con API key, zona unica de upload con auto-detect, formulario
+    editable, confirmacion antes de guardar en Glide, tab batch para procesar desde Glide.
+  - Consume: API backend (POST /api/extract, POST /api/extract-url, POST /api/save,
+    GET /api/tanques, GET /api/tanques/pendientes, POST /api/batch/process)
   - Consumido por: main.py (servido como static file), Glide (via iframe)
 -->
 <!DOCTYPE html>
@@ -113,6 +113,18 @@
         .toast.success { background: #16a34a; }
         .toast.error { background: #dc2626; }
 
+        /* Login screen */
+        .login-screen { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 80px); }
+        .login-card { background: white; border-radius: 12px; padding: 40px 32px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 400px; width: 100%; text-align: center; }
+        .login-card h2 { font-size: 1.2rem; color: #1e293b; margin-bottom: 8px; }
+        .login-card p { font-size: 0.8rem; color: #64748b; margin-bottom: 24px; }
+        .login-card input { width: 100%; padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; margin-bottom: 16px; }
+        .login-card input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+        .login-error { font-size: 0.8rem; color: #dc2626; margin-bottom: 12px; display: none; }
+        .login-error.visible { display: block; }
+        .app-content { display: none; }
+        .app-content.visible { display: block; }
+
         /* Status message */
         .status-msg { margin-top: 10px; font-size: 0.8rem; font-weight: 500; }
         .status-msg.success { color: #16a34a; }
@@ -133,6 +145,18 @@
         <p>Extraccion automatica de certificados ASME mediante Vision Artificial (IA)</p>
     </div>
 
+    <!-- Login screen -->
+    <div class="login-screen" id="login-screen">
+        <div class="login-card">
+            <h2>Acceso al Extractor ASME</h2>
+            <p>Ingresa tu API Key para continuar</p>
+            <input type="password" id="login-key" placeholder="API Key" autocomplete="off">
+            <div class="login-error" id="login-error">API Key invalida</div>
+            <button class="btn btn-primary" style="width:100%" onclick="attemptLogin()">Acceder</button>
+        </div>
+    </div>
+
+    <div class="app-content" id="app-content">
     <div class="container">
         <!-- Tabs -->
         <div class="tabs">
@@ -197,11 +221,66 @@
             </div>
         </div>
     </div>
+    </div>
 
     <div class="toast" id="toast"></div>
 
     <script>
         const API = window.location.origin;
+
+        /* ── Auth ── */
+        function getApiKey() { return sessionStorage.getItem('asme_api_key') || ''; }
+
+        function showLogin() {
+            document.getElementById('login-screen').style.display = 'flex';
+            document.getElementById('app-content').classList.remove('visible');
+            document.getElementById('login-key').value = '';
+            document.getElementById('login-error').classList.remove('visible');
+        }
+
+        function showApp() {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('app-content').classList.add('visible');
+        }
+
+        async function attemptLogin() {
+            const key = document.getElementById('login-key').value.trim();
+            if (!key) return;
+
+            try {
+                const res = await fetch(API + '/api/tanques', { headers: { 'X-API-Key': key } });
+                if (res.ok) {
+                    sessionStorage.setItem('asme_api_key', key);
+                    showApp();
+                } else {
+                    document.getElementById('login-error').classList.add('visible');
+                }
+            } catch {
+                document.getElementById('login-error').textContent = 'Error de conexion';
+                document.getElementById('login-error').classList.add('visible');
+            }
+        }
+
+        document.getElementById('login-key').addEventListener('keydown', e => {
+            if (e.key === 'Enter') attemptLogin();
+        });
+
+        async function apiFetch(url, options = {}) {
+            const key = getApiKey();
+            const headers = options.headers instanceof Headers
+                ? options.headers
+                : new Headers(options.headers || {});
+            if (key) headers.set('X-API-Key', key);
+            options.headers = headers;
+
+            const res = await fetch(url, options);
+            if (res.status === 401) {
+                sessionStorage.removeItem('asme_api_key');
+                showLogin();
+                throw new Error('Sesion expirada. Ingresa tu API Key nuevamente.');
+            }
+            return res;
+        }
 
         /* ── Helpers ── */
         function esc(str) {
@@ -297,7 +376,7 @@
             setTimeout(() => { fill.style.width = '70%'; }, 5000);
 
             try {
-                const res = await fetch(API + '/api/extract', { method: 'POST', body: formData });
+                const res = await apiFetch(API + '/api/extract', { method: 'POST', body: formData });
                 const data = await res.json();
 
                 if (!res.ok) throw new Error(data.detail || 'Error desconocido');
@@ -440,7 +519,7 @@
             };
 
             try {
-                const res = await fetch(API + '/api/save', {
+                const res = await apiFetch(API + '/api/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
@@ -479,7 +558,7 @@
             loadWrapper.style.display = 'none';
 
             try {
-                const res = await fetch(API + '/api/tanques/pendientes');
+                const res = await apiFetch(API + '/api/tanques/pendientes');
                 const tanques = await res.json();
 
                 if (!res.ok) throw new Error('Error al cargar tanques');
@@ -533,7 +612,7 @@
             btn.textContent = 'Obteniendo PDFs...';
 
             try {
-                const res = await fetch(API + '/api/batch/process', {
+                const res = await apiFetch(API + '/api/batch/process', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(selected),
@@ -553,6 +632,7 @@
 
         /* ── Init ── */
         document.getElementById('tab-batch').style.display = 'none';
+        if (getApiKey()) { showApp(); } else { showLogin(); }
     </script>
 </body>
 </html>

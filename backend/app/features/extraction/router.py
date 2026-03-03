@@ -1,17 +1,22 @@
 """
 Endpoints API para extraccion ASME, guardado en Glide y gestion de tanques.
 - Finalidad: Capa HTTP que recibe requests y delega a service.py y glide/repository.py.
-  Endpoints: /extract (auto-detect + LLM), /save (Glide), /tanques, /tanques/{serie}/check, /batch/process.
+  Endpoints: /extract, /extract-url, /save, /tanques, /tanques/{serie}/check, /batch/process.
+  Todos protegidos con API key via auth.py.
 - Consume: service.py (extract, save, check), schemas.py (request/response),
-  validators.py (PDFTypeError), config.py (MAX_PDF_SIZE_MB), glide/repository.py (list, batch)
+  validators.py (PDFTypeError), config.py (MAX_PDF_SIZE_MB), auth.py (verify_api_key),
+  glide/repository.py (list, batch)
 - Consumido por: main.py (registro de router)
 """
 
 import logging
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, UploadFile
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
 from app.config import get_settings
+from app.features.extraction.auth import verify_api_key
 from app.features.extraction.service import (
     check_duplicate,
     extract_from_pdf,
@@ -25,6 +30,7 @@ from app.features.glide.repository import (
 )
 from app.schemas import (
     DuplicateCheckResponse,
+    ExtractUrlRequest,
     ExtractionResponse,
     SaveRequest,
     SaveResponse,
@@ -33,7 +39,11 @@ from app.schemas import (
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-router = APIRouter(prefix="/api", tags=["extraction"])
+router = APIRouter(
+    prefix="/api",
+    tags=["extraction"],
+    dependencies=[Depends(verify_api_key)],
+)
 
 
 @router.post("/extract", response_model=ExtractionResponse)
@@ -49,6 +59,49 @@ async def extract_pdf(file: UploadFile):
 
     try:
         result = await extract_from_pdf(pdf_bytes=pdf_bytes, filename=file.filename)
+    except PDFTypeError as e:
+        raise HTTPException(422, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+
+    return ExtractionResponse(**result)
+
+
+@router.post("/extract-url", response_model=ExtractionResponse)
+async def extract_pdf_from_url(request: ExtractUrlRequest):
+    """Descarga un PDF desde una URL, auto-detecta tipo y extrae datos. NO guarda.
+
+    Pensado para integracion con Glide: el usuario sube PDF en Glide,
+    Glide envia la URL a esta API, la API descarga y procesa.
+    """
+    max_size = settings.MAX_PDF_SIZE_MB * 1024 * 1024
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(request.pdf_url)
+            response.raise_for_status()
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Timeout descargando PDF (60s)")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(502, f"Error descargando PDF: HTTP {e.response.status_code}")
+    except httpx.RequestError as e:
+        raise HTTPException(502, f"Error de conexion descargando PDF: {e}")
+
+    pdf_bytes = response.content
+    if len(pdf_bytes) > max_size:
+        raise HTTPException(400, f"PDF excede {settings.MAX_PDF_SIZE_MB}MB")
+
+    filename = request.filename
+    if not filename:
+        path = urlparse(request.pdf_url).path
+        filename = path.rsplit("/", 1)[-1] if "/" in path else "document.pdf"
+        if not filename.lower().endswith(".pdf"):
+            filename += ".pdf"
+
+    try:
+        result = await extract_from_pdf(pdf_bytes=pdf_bytes, filename=filename)
     except PDFTypeError as e:
         raise HTTPException(422, str(e))
     except ValueError as e:

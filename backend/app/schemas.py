@@ -2,7 +2,7 @@
 Pydantic schemas para request/response de la API.
 - Finalidad: Define contratos de datos entre LLM, API y frontend.
   ExtractionResult recibe datos del LLM. ExtractionResponse envuelve para el frontend.
-  SaveRequest recibe datos confirmados por el usuario. SaveResponse confirma guardado.
+  ExtractUrlRequest recibe URL de PDF desde Glide. SaveRequest recibe datos confirmados.
 - Consume: nada (solo pydantic, datetime, decimal)
 - Consumido por: llm_extractor.py (ExtractionResult), router.py (responses), service.py (tipado)
 """
@@ -40,6 +40,13 @@ class ExtractionResult(BaseModel):
     raw_espesor_cabezales: str | None = None
 
     warnings: list[str] = []
+
+
+class ExtractUrlRequest(BaseModel):
+    """Request para extraer datos desde una URL de PDF (integracion Glide)."""
+
+    pdf_url: str
+    filename: str | None = None
 
 
 class ExtractionResponse(BaseModel):

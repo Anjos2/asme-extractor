@@ -1,5 +1,6 @@
-# Docker Compose produccion (Docker Swarm) — ASME Extractor.
+# Docker Compose produccion (Docker Swarm) — ASME Extractor v2.1.
 # - Finalidad: Define servicio backend con Traefik (HTTPS/letsencrypt) y Docker secrets.
+#   Incluye secret asme_api_key para autenticacion de requests.
 # - Consume: asme-backend:latest (imagen), secrets de Docker Swarm, dokploy-network
 # - Consumido por: docker stack deploy (envsubst < este archivo)
 
@@ -14,6 +15,7 @@ services:
     secrets:
       - openai_api_key
       - glide_api_token
+      - asme_api_key
     volumes:
       - ./frontend:/frontend
     deploy:
@@ -33,6 +35,8 @@ secrets:
   openai_api_key:
     external: true
   glide_api_token:
+    external: true
+  asme_api_key:
     external: true
 
 networks:

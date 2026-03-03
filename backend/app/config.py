@@ -1,9 +1,9 @@
 """
 Configuracion centralizada via variables de entorno y Docker secrets.
-- Finalidad: Centraliza todas las settings de la app (Glide API, OpenAI, PDF, CORS)
-  en un unico punto. Prioridad: env var > Docker secret (/run/secrets/) > default.
+- Finalidad: Centraliza todas las settings de la app (Glide API, OpenAI, PDF, CORS,
+  autenticacion API key) en un unico punto. Prioridad: env var > Docker secret > default.
 - Consume: nada (solo stdlib os, pathlib)
-- Consumido por: glide/client.py, llm_extractor.py, main.py, router.py
+- Consumido por: glide/client.py, llm_extractor.py, main.py, router.py, auth.py
 """
 
 import os
@@ -38,9 +38,12 @@ class Settings:
     PDF_DPI: int = int(os.getenv("PDF_DPI", "200"))
     MAX_PDF_SIZE_MB: int = int(os.getenv("MAX_PDF_SIZE_MB", "50"))
 
+    # Authentication
+    ASME_API_KEY: str = _get_secret("ASME_API_KEY", "asme_api_key")
+
     # App
     APP_TITLE: str = "ASME Pressure Vessel Extractor"
-    APP_VERSION: str = "2.0.0"
+    APP_VERSION: str = "2.1.0"
     CORS_ORIGINS: list[str] = os.getenv("CORS_ORIGINS", "*").split(",")
 
 
