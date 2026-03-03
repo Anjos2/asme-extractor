@@ -49,10 +49,13 @@ REGLAS:
 
 TYPE_2_PROMPT = """Analiza estas imagenes de un Certificado de Inspeccion de recipiente a presion.
 
-La primera imagen es la pagina de "DATOS DEL PRODUCTO" (puede estar en espanol con unidades metricas).
-La segunda imagen (si existe) es el formulario ASME U-1A embebido en el certificado.
+Las imagenes son (en orden):
+1. Pagina de "DATOS DEL PRODUCTO" (puede estar en espanol con unidades metricas)
+2. Pagina de "FECHA DE INSPECCION" (contiene la fecha de certificacion correcta)
+3. Formulario ASME U-1A embebido (si existe) — front
+4. Formulario ASME U-1A embebido (si existe) — back
 
-Extrae los siguientes campos combinando informacion de AMBAS imagenes y devuelve SOLO un JSON valido (sin markdown, sin ```).
+Extrae los siguientes campos combinando informacion de TODAS las imagenes y devuelve SOLO un JSON valido (sin markdown, sin ```).
 
 CAMPOS A EXTRAER:
 - fabricante: Nombre del fabricante
@@ -66,7 +69,7 @@ CAMPOS A EXTRAER:
 - diametro_interior_m: Diametro INTERIOR en metros. Buscar en U-1A embebido si no esta en pagina de datos. Si esta en pulgadas, convertir (1 in = 0.0254 m). IMPORTANTE: Necesitamos diametro INTERIOR, no exterior
 - material_cabezales: Material de los cabezales/heads
 - espesor_cabezales_mm: Espesor de los cabezales en mm
-- fecha_certificacion: Fecha de certificacion del FABRICANTE (Date en CERTIFICATE OF COMPLIANCE, NO la fecha del inspector) en formato YYYY-MM-DD
+- fecha_certificacion: Fecha de inspeccion de la pagina 8 (seccion "FECHA DE INSPECCION"). Esta es la fecha correcta y vigente. Formato YYYY-MM-DD. NO usar la fecha del CERTIFICATE OF COMPLIANCE ni la del fabricante
 - serial_number: Numero(s) de serie del fabricante
 - vessel_type: "Horizontal" o "Vertical"
 
@@ -79,7 +82,8 @@ VALORES RAW (antes de conversion):
 - raw_espesor_cabezales: Valor original tal como aparece
 
 REGLAS:
-- Combina datos de ambas imagenes. La pagina de datos tiene info en metrico, el U-1A en imperial
+- Combina datos de TODAS las imagenes. La pagina de datos tiene info en metrico, el U-1A en imperial
+- IMPORTANTE: fecha_certificacion DEBE venir de la pagina de "FECHA DE INSPECCION" (imagen 2), NO de otras paginas
 - Si un campo no se encuentra en ninguna imagen, pon null
 - Presiones finales en PSI, espesores en mm, longitudes/diametros en metros
 - Para raw_*, copia el texto exacto como aparece

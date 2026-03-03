@@ -31,8 +31,8 @@ def _get_pages_for_type1() -> list[int]:
 
 
 def _get_pages_for_type2(pdf_bytes: bytes) -> list[int]:
-    """Paginas a convertir para Type 2: pag 2 (datos) + U-1A front + U-1A back."""
-    pages = [1]  # Pagina 2 = index 1 (DATOS DEL PRODUCTO)
+    """Paginas a convertir para Type 2: pag 2 (datos) + pag 8 (fecha inspeccion) + U-1A front + U-1A back."""
+    pages = [1, 7]  # Pagina 2 = index 1 (DATOS DEL PRODUCTO), Pagina 8 = index 7 (FECHA INSPECCION)
     u1a_page = find_u1a_page(pdf_bytes)
     if u1a_page is not None:
         pages.append(u1a_page)
