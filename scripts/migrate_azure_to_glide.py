@@ -338,7 +338,9 @@ async def migrate(args: argparse.Namespace) -> None:
         existing_doc_rows = await glide_query_all(TABLE_DOCUMENTOS)
         for row in existing_doc_rows:
             url = row.get(DOCUMENTO_GLIDE_MAP["pdf_urls"], "")
-            if url:
+            if isinstance(url, list):
+                existing_doc_urls.update(url)
+            elif url:
                 existing_doc_urls.add(url)
         log.info("Glide tiene %d documentos existentes", len(existing_doc_urls))
 
