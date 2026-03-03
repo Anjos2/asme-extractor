@@ -211,7 +211,11 @@ async def glide_add_row(table_id: str, column_values: dict) -> str | None:
     result = await glide_post("mutateTables", payload)
 
     if result and isinstance(result, list) and result[0]:
-        return result[0]
+        first = result[0]
+        if isinstance(first, dict):
+            return first.get("rowID")
+        if isinstance(first, str):
+            return first
     return None
 
 
