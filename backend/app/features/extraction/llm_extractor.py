@@ -53,6 +53,67 @@ def _clean_json_response(text: str) -> str:
     return text.strip()
 
 
+async def detect_type_with_vision(image_b64: str) -> str:
+    """Clasifica el tipo de PDF usando vision AI cuando la deteccion por texto falla.
+
+    Envia la imagen de la pagina 1 al LLM y le pide clasificar como TYPE_1 o TYPE_2.
+
+    Returns:
+        'TYPE_1' o 'TYPE_2'
+
+    Raises:
+        RuntimeError si no se puede determinar.
+    """
+    if not settings.OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY no configurada")
+
+    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a document classifier for ASME pressure vessel documents.",
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "Classify this document page. Reply with ONLY one of these two words:\n"
+                        "TYPE_1 - if it is an ASME Form U-1A (Manufacturer's Data Report)\n"
+                        "TYPE_2 - if it is a Certificate of Inspection (Certificado de Inspección)\n"
+                        "Reply with just TYPE_1 or TYPE_2, nothing else."
+                    ),
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{image_b64}",
+                        "detail": "low",
+                    },
+                },
+            ],
+        },
+    ]
+
+    response = await client.chat.completions.create(
+        model=settings.OPENAI_MODEL,
+        messages=messages,
+        max_completion_tokens=100,
+    )
+
+    answer = (response.choices[0].message.content or "").strip().upper()
+    logger.info("Vision type detection: answer=%s", answer)
+
+    if "TYPE_1" in answer:
+        return "TYPE_1"
+    if "TYPE_2" in answer:
+        return "TYPE_2"
+
+    raise RuntimeError(f"Vision AI no pudo clasificar el PDF: {answer}")
+
+
 async def extract_with_llm(
     images_b64: list[str], pdf_type: str
 ) -> ExtractionResult:

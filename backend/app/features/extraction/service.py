@@ -11,9 +11,10 @@ import logging
 import re
 
 from app.schemas import ExtractionResult
-from app.features.extraction.llm_extractor import extract_with_llm
+from app.features.extraction.llm_extractor import detect_type_with_vision, extract_with_llm
 from app.features.extraction.pdf_to_images import pdf_pages_to_base64
 from app.features.extraction.validators import (
+    PDFTypeError,
     detect_pdf_type,
     find_u1a_page,
 )
@@ -57,8 +58,16 @@ async def extract_from_pdf(
         Dict con: pdf_type, filename, extraction (datos extraidos),
         duplicate_found, existing_data (si el serial ya existe en Glide).
     """
-    pdf_type = detect_pdf_type(pdf_bytes)
-    logger.info("Auto-detected PDF type: %s for %s", pdf_type, filename)
+    try:
+        pdf_type = detect_pdf_type(pdf_bytes)
+        logger.info("Auto-detected PDF type: %s for %s (text)", pdf_type, filename)
+    except PDFTypeError:
+        logger.warning("Text detection failed for %s, falling back to vision AI", filename)
+        page1_images = pdf_pages_to_base64(pdf_bytes, [0])
+        if not page1_images:
+            raise ValueError("No se pudo convertir la pagina 1 a imagen")
+        pdf_type = await detect_type_with_vision(page1_images[0])
+        logger.info("Auto-detected PDF type: %s for %s (vision)", pdf_type, filename)
 
     if pdf_type == "TYPE_1":
         pages = _get_pages_for_type1()
