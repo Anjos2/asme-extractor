@@ -47,13 +47,23 @@ class ExtractUrlRequest(BaseModel):
 
     Con auto_save=True, extrae y guarda automaticamente en Glide (flujo Glide).
     Con auto_save=False (default), solo extrae (flujo frontend con revision humana).
-    row_id permite especificar la fila exacta a actualizar en Glide.
+    id_activo permite especificar la fila exacta a actualizar en Glide.
     """
 
     pdf_url: str
     filename: str | None = None
     auto_save: bool = False
-    row_id: str | None = None
+    id_activo: str | None = None
+
+
+class BatchExtractRequest(BaseModel):
+    """Request para procesar multiples PDFs en una sola peticion.
+
+    Cada item tiene pdf_url e id_activo. Se procesan todos sin consultas
+    adicionales a Glide (se usa id_activo directamente para guardar).
+    """
+
+    items: list[ExtractUrlRequest]
 
 
 class ExtractionResponse(BaseModel):

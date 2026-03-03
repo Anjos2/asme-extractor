@@ -1,8 +1,10 @@
 """
 Endpoints API para extraccion ASME, guardado en Glide y gestion de tanques.
 - Finalidad: Capa HTTP que recibe requests y delega a service.py y glide/repository.py.
-  Endpoints: /extract, /extract-url (con auto_save), /save, /tanques, /tanques/{serie}/check, /batch/process.
-  /extract-url acepta auto_save=True para extraer y guardar en un solo paso (flujo Glide).
+  Endpoints: /extract, /extract-url (con auto_save + id_activo), /batch/extract (masivo),
+  /save, /tanques, /tanques/{serie}/check, /batch/process.
+  /extract-url acepta auto_save=True + id_activo para extraer y guardar en un solo paso (flujo Glide).
+  /batch/extract procesa multiples PDFs en una sola peticion sin consultas repetidas a Glide.
   Todos protegidos con API key via auth.py.
 - Consume: service.py (extract, save, check), schemas.py (request/response),
   validators.py (PDFTypeError), config.py (MAX_PDF_SIZE_MB), auth.py (verify_api_key),
@@ -31,6 +33,7 @@ from app.features.glide.repository import (
     list_tanques,
 )
 from app.schemas import (
+    BatchExtractRequest,
     DuplicateCheckResponse,
     ExtractUrlRequest,
     ExtractionResponse,
@@ -46,6 +49,27 @@ router = APIRouter(
     tags=["extraction"],
     dependencies=[Depends(verify_api_key)],
 )
+
+
+def _build_save_data(ext: dict, serie: str, include_serie: bool = True) -> dict:
+    """Construye dict de datos a guardar en Glide desde la extraccion del LLM."""
+    save_data = {
+        "fabricante": ext.get("fabricante"),
+        "ano_fabricacion": ext.get("ano_fabricacion"),
+        "asme_code_edition": ext.get("asme_code_edition"),
+        "mawp_psi": str(ext["mawp_psi"]) if ext.get("mawp_psi") is not None else None,
+        "hydro_test_pressure_psi": str(ext["hydro_test_pressure_psi"]) if ext.get("hydro_test_pressure_psi") is not None else None,
+        "material_cuerpo": ext.get("material_cuerpo"),
+        "espesor_cuerpo_mm": str(ext["espesor_cuerpo_mm"]) if ext.get("espesor_cuerpo_mm") is not None else None,
+        "longitud_cuerpo_m": str(ext["longitud_cuerpo_m"]) if ext.get("longitud_cuerpo_m") is not None else None,
+        "diametro_interior_m": str(ext["diametro_interior_m"]) if ext.get("diametro_interior_m") is not None else None,
+        "material_cabezales": ext.get("material_cabezales"),
+        "espesor_cabezales_mm": str(ext["espesor_cabezales_mm"]) if ext.get("espesor_cabezales_mm") is not None else None,
+        "fecha_certificacion": str(ext["fecha_certificacion"]) if ext.get("fecha_certificacion") is not None else None,
+    }
+    if include_serie:
+        save_data["serie"] = serie
+    return save_data
 
 
 @router.post("/extract", response_model=ExtractionResponse)
@@ -154,29 +178,15 @@ async def extract_pdf_from_url(raw_request: Request):
     if request.auto_save and serie:
         logger.info("POST /extract-url auto_save=True, guardando serie=%s", serie)
         ext = result.get("extraction", {})
-        save_data = {
-            "serie": serie,
-            "fabricante": ext.get("fabricante"),
-            "ano_fabricacion": ext.get("ano_fabricacion"),
-            "asme_code_edition": ext.get("asme_code_edition"),
-            "mawp_psi": str(ext["mawp_psi"]) if ext.get("mawp_psi") is not None else None,
-            "hydro_test_pressure_psi": str(ext["hydro_test_pressure_psi"]) if ext.get("hydro_test_pressure_psi") is not None else None,
-            "material_cuerpo": ext.get("material_cuerpo"),
-            "espesor_cuerpo_mm": str(ext["espesor_cuerpo_mm"]) if ext.get("espesor_cuerpo_mm") is not None else None,
-            "longitud_cuerpo_m": str(ext["longitud_cuerpo_m"]) if ext.get("longitud_cuerpo_m") is not None else None,
-            "diametro_interior_m": str(ext["diametro_interior_m"]) if ext.get("diametro_interior_m") is not None else None,
-            "material_cabezales": ext.get("material_cabezales"),
-            "espesor_cabezales_mm": str(ext["espesor_cabezales_mm"]) if ext.get("espesor_cabezales_mm") is not None else None,
-            "fecha_certificacion": str(ext["fecha_certificacion"]) if ext.get("fecha_certificacion") is not None else None,
-        }
+        save_data = _build_save_data(ext, serie, include_serie=not request.id_activo)
         save_data = {k: v for k, v in save_data.items() if v is not None}
 
-        # Prioridad: row_id del request > row_id del duplicado > crear nuevo
-        row_id = request.row_id
+        # Prioridad: id_activo del request > row_id del duplicado > crear nuevo
+        row_id = request.id_activo
         if not row_id and result.get("duplicate_found"):
             row_id = result.get("existing_data", {}).get("row_id")
         logger.info("POST /extract-url auto_save — row_id=%s (source=%s)",
-                     row_id, "request" if request.row_id else ("duplicate" if row_id else "new"))
+                     row_id, "request" if request.id_activo else ("duplicate" if row_id else "new"))
 
         try:
             save_result = await save_to_glide(data=save_data, row_id=row_id)
@@ -306,3 +316,91 @@ async def batch_process(tanque_row_ids: list[str]):
     total = sum(r["doc_count"] for r in results)
     logger.info("POST /batch/process OK — %d tanques, %d PDFs total", len(results), total)
     return {"tanques": results, "total_pdfs": total}
+
+
+@router.post("/batch/extract")
+async def batch_extract(raw_request: Request):
+    """Procesa multiples PDFs en una sola peticion.
+
+    Recibe lista de items con pdf_url + id_activo. Descarga, extrae y guarda
+    cada PDF directamente en el id_activo indicado, sin consultas adicionales
+    a Glide (no busca duplicados, usa id_activo directo).
+
+    Body JSON:
+        {"items": [{"pdf_url": "...", "id_activo": "...", "auto_save": true}, ...]}
+    """
+    body_bytes = await raw_request.body()
+    try:
+        data = json.loads(body_bytes)
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error("POST /batch/extract JSON parse error: %s", e)
+        raise HTTPException(400, f"Body debe ser JSON valido: {e}")
+
+    try:
+        batch_req = BatchExtractRequest(**data)
+    except Exception as e:
+        logger.error("POST /batch/extract validation error: %s", e)
+        raise HTTPException(400, f"Formato invalido: {e}")
+
+    if not batch_req.items:
+        raise HTTPException(400, "items no puede estar vacio")
+
+    logger.info("POST /batch/extract — %d PDFs a procesar", len(batch_req.items))
+    max_size = settings.MAX_PDF_SIZE_MB * 1024 * 1024
+    results = []
+
+    for i, item in enumerate(batch_req.items):
+        item_result = {"pdf_url": item.pdf_url, "id_activo": item.id_activo}
+        try:
+            # Descargar PDF
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.get(item.pdf_url)
+                response.raise_for_status()
+
+            pdf_bytes = response.content
+            if len(pdf_bytes) > max_size:
+                item_result["status"] = "error"
+                item_result["error"] = f"PDF excede {settings.MAX_PDF_SIZE_MB}MB"
+                results.append(item_result)
+                continue
+
+            # Derivar filename de la URL
+            path = urlparse(item.pdf_url).path
+            filename = path.rsplit("/", 1)[-1] if "/" in path else "document.pdf"
+            if not filename.lower().endswith(".pdf"):
+                filename += ".pdf"
+
+            # Extraer datos (sin consulta de duplicados a Glide)
+            result = await extract_from_pdf(pdf_bytes=pdf_bytes, filename=filename)
+            serie = result.get("extraction", {}).get("serial_number")
+            item_result["pdf_type"] = result.get("pdf_type")
+            item_result["serie_extraida"] = serie
+            item_result["extraction"] = result.get("extraction")
+
+            # Guardar directamente si auto_save e id_activo
+            if item.auto_save and item.id_activo:
+                ext = result.get("extraction", {})
+                save_data = _build_save_data(ext, serie or "", include_serie=False)
+                save_data = {k: v for k, v in save_data.items() if v is not None}
+
+                save_result = await save_to_glide(data=save_data, row_id=item.id_activo)
+                item_result["saved"] = True
+                item_result["save_action"] = save_result.get("action")
+                item_result["status"] = "ok"
+                logger.info("  batch[%d] OK — serie=%s, saved to %s", i, serie, item.id_activo)
+            else:
+                item_result["saved"] = False
+                item_result["status"] = "extracted"
+                logger.info("  batch[%d] OK — serie=%s (no auto_save)", i, serie)
+
+        except Exception as e:
+            logger.error("  batch[%d] error: %s", i, e)
+            item_result["status"] = "error"
+            item_result["error"] = str(e)
+
+        results.append(item_result)
+
+    ok_count = sum(1 for r in results if r["status"] == "ok")
+    err_count = sum(1 for r in results if r["status"] == "error")
+    logger.info("POST /batch/extract DONE — %d total, %d ok, %d errors", len(results), ok_count, err_count)
+    return {"results": results, "total": len(results), "ok": ok_count, "errors": err_count}
