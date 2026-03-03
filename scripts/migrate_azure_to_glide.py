@@ -215,6 +215,19 @@ async def glide_add_row(table_id: str, column_values: dict) -> str | None:
     return None
 
 
+async def glide_update_row(table_id: str, row_id: str, column_values: dict) -> bool:
+    """Actualizar columnas de una row existente en Glide."""
+    mutation = {
+        "kind": "set-columns-in-row",
+        "tableName": table_id,
+        "rowID": row_id,
+        "columnValues": column_values,
+    }
+    payload = {"appID": GLIDE_APP_ID, "mutations": [mutation]}
+    await glide_post("mutateTables", payload)
+    return True
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Document matching (deduplicacion por serie en URL)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -311,8 +324,8 @@ async def migrate(args: argparse.Namespace) -> None:
     # ── 4. Obtener tanques existentes en Glide ──
     log.info("Consultando tanques existentes en Glide...")
     existing_rows = await glide_query_all(TABLE_TANQUES)
-    existing_series: dict[str, str] = {
-        row.get("Name"): row.get("$rowID")
+    existing_series: dict[str, dict] = {
+        row.get("Name"): row
         for row in existing_rows
         if row.get("Name")
     }
@@ -332,6 +345,7 @@ async def migrate(args: argparse.Namespace) -> None:
     # ── 6. Migrar ──
     stats = {
         "tanques_created": 0,
+        "tanques_updated": 0,
         "tanques_skipped": 0,
         "docs_created": 0,
         "docs_skipped": 0,
@@ -351,11 +365,32 @@ async def migrate(args: argparse.Namespace) -> None:
 
         log.info("── [%d/%d] Tanque: %s ──", i, len(azure_tanques), serie)
 
-        # ── 6a. Crear o saltar tanque ──
+        # ── 6a. Crear, actualizar o saltar tanque ──
         if serie in existing_series:
-            tanque_row_id = existing_series[serie]
-            log.info("  SKIP: ya existe en Glide (rowID=%s)", tanque_row_id)
-            stats["tanques_skipped"] += 1
+            glide_row = existing_series[serie]
+            tanque_row_id = glide_row.get("$rowID")
+
+            # Buscar columnas vacías en Glide que Azure sí tiene
+            updates: dict[str, str] = {}
+            if tanque.get("ano_fabricacion") and not glide_row.get(TANQUE_GLIDE_MAP["ano_fabricacion"]):
+                updates[TANQUE_GLIDE_MAP["ano_fabricacion"]] = str(tanque["ano_fabricacion"])
+
+            if updates:
+                if args.dry_run:
+                    log.info("  DRY-RUN: actualizaria %s (rowID=%s) -> %s", serie, tanque_row_id, updates)
+                else:
+                    try:
+                        await glide_update_row(TABLE_TANQUES, tanque_row_id, updates)
+                        log.info("  UPDATED: %s (rowID=%s) -> %s", serie, tanque_row_id, updates)
+                        await asyncio.sleep(0.5)
+                    except Exception as e:
+                        log.error("  ERROR actualizando tanque %s: %s", serie, e)
+                        stats["errors"] += 1
+                        continue
+                stats["tanques_updated"] += 1
+            else:
+                log.info("  SKIP: %s ya completo en Glide (rowID=%s)", serie, tanque_row_id)
+                stats["tanques_skipped"] += 1
         else:
             glide_data: dict[str, str] = {}
             glide_data[TANQUE_GLIDE_MAP["serie"]] = serie
@@ -371,7 +406,7 @@ async def migrate(args: argparse.Namespace) -> None:
                 try:
                     tanque_row_id = await glide_add_row(TABLE_TANQUES, glide_data)
                     log.info("  CREATED: %s -> rowID=%s", serie, tanque_row_id)
-                    existing_series[serie] = tanque_row_id
+                    existing_series[serie] = {"$rowID": tanque_row_id}
                     await asyncio.sleep(0.5)
                 except Exception as e:
                     log.error("  ERROR creando tanque %s: %s", serie, e)
@@ -424,7 +459,7 @@ async def migrate(args: argparse.Namespace) -> None:
     elapsed = time.time() - t_start
     log.info("=" * 60)
     log.info("MIGRACION COMPLETADA%s", " (DRY RUN)" if args.dry_run else "")
-    log.info("Tanques: %d creados, %d existentes (skip)", stats["tanques_created"], stats["tanques_skipped"])
+    log.info("Tanques: %d creados, %d actualizados, %d sin cambios (skip)", stats["tanques_created"], stats["tanques_updated"], stats["tanques_skipped"])
     log.info("Documentos: %d creados, %d existentes (skip)", stats["docs_created"], stats["docs_skipped"])
     log.info("Errores: %d", stats["errors"])
     log.info("Tiempo: %.1f segundos", elapsed)
