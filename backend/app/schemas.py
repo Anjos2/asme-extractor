@@ -93,6 +93,13 @@ class ExtractionResponse(BaseModel):
     range_serials: list[str] = []
     saved: bool = False
     save_result: dict | None = None
+    range_saved: bool = False
+    range_result: dict | None = None
+    u1a_method: str | None = None
+    pages_sent: list[int] = []
+    fields_extracted: int = 0
+    fields_null: list[str] = []
+    retry_used: bool = False
 
 
 class SaveRequest(BaseModel):

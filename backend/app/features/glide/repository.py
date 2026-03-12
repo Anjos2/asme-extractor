@@ -2,6 +2,7 @@
 Repositorio CRUD para tanques y documentos en Glide.
 - Finalidad: Operaciones de negocio sobre Glide (buscar por serie/row_id, crear, actualizar,
   listar tanques sin datos LIBRO DIGITAL, obtener documentos por tanque, bulk query).
+  Cache optimizado: get_all_tanques_by_serie() y get_all_tanques_by_row_id() para batch/rangos.
 - Consume: glide/client.py (query_table, mutate_table, column mapping, table IDs)
 - Consumido por: extraction/service.py, extraction/router.py
 """
@@ -48,6 +49,20 @@ async def get_all_tanques_by_row_id() -> dict[str, dict]:
         rid = row.get("$rowID")
         if rid:
             result[rid] = from_glide_columns(row, _TANQUE_COLUMNS_INV)
+    return result
+
+
+async def get_all_tanques_by_serie() -> dict[str, dict]:
+    """Obtiene todos los tanques indexados por serie (campo Name).
+
+    Optimizado para rangos: una sola query, retorna dict {serie: datos}.
+    """
+    rows = await query_table(TABLE_TANQUES)
+    result = {}
+    for row in rows:
+        serie = row.get("Name")
+        if serie:
+            result[serie] = from_glide_columns(row, _TANQUE_COLUMNS_INV)
     return result
 
 

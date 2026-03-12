@@ -11,3 +11,4 @@ services:
       GLIDE_API_TOKEN: ${GLIDE_API_TOKEN}
     volumes:
       - ./backend/app:/app/app
+      - ./data:/app/data

@@ -1,15 +1,17 @@
 """
-Endpoints API para extraccion ASME, guardado en Glide y gestion de tanques.
-- Finalidad: Capa HTTP que recibe requests y delega a service.py y glide/repository.py.
+Endpoints API para extraccion ASME, guardado en Glide, gestion de tanques y backlog.
+- Finalidad: Capa HTTP que recibe requests y delega a service.py, glide/repository.py y backlog.py.
   Endpoints: /extract, /extract-url (con auto_save + id_activo), /batch/extract (masivo),
-  /save, /tanques, /tanques/{serie}/check, /batch/process.
+  /save, /tanques, /tanques/{serie}/check, /batch/process, /backlog, /backlog/summary.
   Proteccion "solo campos vacios": tanto /extract-url como /batch/extract verifican
   datos existentes en Glide antes de guardar, solo llenando campos que estan vacios.
   Batch optimizado: UNA sola query a Glide al inicio para cache de todos los tanques.
   Todos protegidos con API key via auth.py.
-- Consume: service.py (extract, save, check), schemas.py (request/response),
+- Consume: service.py (extract, save, check, expand_serial_range), schemas.py (request/response),
   validators.py (PDFTypeError), config.py (MAX_PDF_SIZE_MB), auth.py (verify_api_key),
-  glide/repository.py (list, batch, get_tanque_by_row_id, get_all_tanques_by_row_id)
+  glide/repository.py (list, batch, get_tanque_by_row_id, get_all_tanques_by_row_id),
+  backlog.py (read_backlog, get_backlog_summary)
+  extract-url expande rangos automaticamente: actualiza id_activo + crea/actualiza resto por serie.
 - Consumido por: main.py (registro de router)
 """
 
@@ -22,8 +24,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 
 from app.config import get_settings
 from app.features.extraction.auth import verify_api_key
+from app.features.extraction.backlog import get_backlog_summary, read_backlog
 from app.features.extraction.service import (
     check_duplicate,
+    expand_serial_range,
     extract_from_pdf,
     save_to_glide,
 )
@@ -243,6 +247,28 @@ async def extract_pdf_from_url(raw_request: Request):
                 result["saved"] = False
                 result["save_result"] = {"error": str(e)}
 
+        # POR QUE: Cuando el PDF tiene un rango de seriales (ej: M1744629-M1744662),
+        # el bloque anterior solo actualiza el id_activo (1 fila). Este bloque
+        # crea/actualiza las filas restantes del rango buscando por serial en Glide.
+        if result.get("is_range") and serie:
+            serials = expand_serial_range(serie)
+            if len(serials) > 1:
+                logger.info("POST /extract-url — rango detectado: %d seriales, expandiendo", len(serials))
+                range_save_data = _build_save_data(ext, serie, include_serie=True)
+                range_save_data = {k: v for k, v in range_save_data.items() if v is not None}
+                try:
+                    range_result = await save_to_glide(data=range_save_data)
+                    result["range_saved"] = True
+                    result["range_result"] = range_result
+                    logger.info(
+                        "POST /extract-url rango OK — %d creados, %d actualizados",
+                        range_result.get("created", 0), range_result.get("updated", 0),
+                    )
+                except Exception as e:
+                    logger.error("POST /extract-url rango error: %s", e)
+                    result["range_saved"] = False
+                    result["range_result"] = {"error": str(e)}
+
     return ExtractionResponse(**result)
 
 
@@ -348,9 +374,9 @@ async def batch_process(tanque_row_ids: list[str]):
                 "pdf_urls": pdf_urls,
                 "doc_count": len(pdf_urls),
             })
-            logger.info("  batch tanque %s: %d PDFs encontrados", row_id, len(pdf_urls))
-        except RuntimeError as e:
-            logger.error("  batch tanque %s error: %s", row_id, e)
+            logger.info("  batch/process tanque %s: %d PDFs encontrados", row_id, len(pdf_urls))
+        except Exception as e:
+            logger.error("  batch/process tanque %s error: %s", row_id, e)
             results.append({
                 "tanque_row_id": row_id,
                 "pdf_urls": [],
@@ -359,8 +385,12 @@ async def batch_process(tanque_row_ids: list[str]):
             })
 
     total = sum(r["doc_count"] for r in results)
-    logger.info("POST /batch/process OK — %d tanques, %d PDFs total", len(results), total)
-    return {"tanques": results, "total_pdfs": total}
+    err_count = sum(1 for r in results if "error" in r)
+    logger.info(
+        "POST /batch/process DONE — %d tanques, %d PDFs total, %d errores",
+        len(results), total, err_count,
+    )
+    return {"tanques": results, "total_pdfs": total, "errors": err_count}
 
 
 @router.post("/batch/extract")
@@ -474,3 +504,27 @@ async def batch_extract(raw_request: Request):
     err_count = sum(1 for r in results if r["status"] == "error")
     logger.info("POST /batch/extract DONE — %d total, %d ok, %d skipped, %d errors", len(results), ok_count, skip_count, err_count)
     return {"results": results, "total": len(results), "ok": ok_count, "skipped": skip_count, "errors": err_count}
+
+
+@router.get("/backlog")
+async def get_backlog(limit: int = 50, category: str | None = None):
+    """Ultimas N entradas del backlog de extracciones.
+
+    Query params:
+        limit: Cantidad de entradas (default 50, max 500).
+        category: Filtro opcional — "ok", "incomplete" o "failed".
+    """
+    limit = min(limit, 500)
+    logger.info("GET /backlog — limit=%d, category=%s", limit, category)
+    entries = read_backlog(limit=limit, category=category)
+    logger.info("GET /backlog OK — %d entradas", len(entries))
+    return {"entries": entries, "count": len(entries)}
+
+
+@router.get("/backlog/summary")
+async def get_backlog_stats():
+    """Estadisticas del backlog: totales, por categoria, campos mas fallidos, metodos U-1A."""
+    logger.info("GET /backlog/summary")
+    summary = get_backlog_summary()
+    logger.info("GET /backlog/summary OK — %d entradas totales", summary["total"])
+    return summary
