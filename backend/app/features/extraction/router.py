@@ -607,6 +607,29 @@ async def _process_batch_item(
                 item_result["status"] = "ok"
                 logger.info("  batch[%d] OK — serie=%s, saved %d campos to %s", index, serie, len(save_data), item.id_activo)
                 job["ok"] += 1
+
+                # POR QUÉ: Cuando el PDF cubre un rango de seriales (ej: H2004088 thru H2004105),
+                # el bloque anterior solo actualiza el id_activo (1 fila). Este bloque
+                # expande el rango y actualiza/crea las filas restantes buscando por serie en Glide.
+                # Misma logica que /extract-url para que el batch sea consistente.
+                if result.get("is_range") and serie:
+                    serials = expand_serial_range(serie)
+                    if len(serials) > 1:
+                        logger.info("  batch[%d] — rango detectado: %d seriales, expandiendo", index, len(serials))
+                        range_save_data = _build_save_data(ext, serie, include_serie=True)
+                        range_save_data = {k: v for k, v in range_save_data.items() if v is not None}
+                        try:
+                            range_result = await save_to_glide(data=range_save_data)
+                            item_result["range_saved"] = True
+                            item_result["range_result"] = range_result
+                            logger.info(
+                                "  batch[%d] rango OK — %d creados, %d actualizados",
+                                index, range_result.get("created", 0), range_result.get("updated", 0),
+                            )
+                        except Exception as e:
+                            logger.error("  batch[%d] rango error: %s", index, e)
+                            item_result["range_saved"] = False
+                            item_result["range_result"] = {"error": str(e)}
         else:
             item_result["saved"] = False
             item_result["status"] = "extracted"

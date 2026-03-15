@@ -3,7 +3,9 @@ Prompts para el LLM vision segun tipo de PDF (Type 1 U-1A / Type 2 Certificado).
 - Finalidad: Define SYSTEM_PROMPT (rol experto ASME) y prompts especificos
   por tipo de PDF con campos, conversiones de unidades y reglas de extraccion.
   Incluye reglas de normalizacion: fabricante sin direccion, materiales sin prefijo "ASME".
-  fecha_certificacion: fecha del INSPECTOR (no del fabricante), formato USA MM/DD/YYYY.
+  fecha_certificacion: fecha del INSPECTOR, formato USA MM/DD/YYYY.
+  diametro_interior: prioridad ID directo, fallback OD→ID con formula.
+  asme_code_edition: rangos con "to" (ej: "2004 to 2006") para evitar corrupcion en Glide.
 - Consume: nada (solo constantes string)
 - Consumido por: llm_extractor.py (selecciona prompt segun pdf_type)
 """
@@ -21,13 +23,13 @@ Extrae los siguientes campos y devuelve SOLO un JSON valido (sin markdown, sin `
 CAMPOS A EXTRAER:
 - fabricante: Solo el nombre de la empresa hasta la forma juridica. Ejemplos: "Trinity Industries de Mexico S de RL de CV", "Arcosa Industries de Mexico S. de R.L. de C.V.", "Buffalo Tank Division"
 - ano_fabricacion: Ano de fabricacion del recipiente. Extraer del campo "DATE" del formulario U-1A (solo el ano, ej: "2017"). Si no hay fecha explicita, usar el ano de fecha_certificacion
-- asme_code_edition: Ano/edicion del codigo ASME usado (ej: "2019", "2021 Edition")
+- asme_code_edition: Ano/edicion del codigo ASME usado. Copiar el texto tal como aparece en el documento (ej: "2019", "2004 to 2006", "2021 Edition"). Si es un rango de anos, usar "to" entre los anos (ej: "2004 to 2006")
 - mawp_psi: Maximum Allowable Working Pressure en PSI (numero decimal)
 - hydro_test_pressure_psi: Presion de prueba hidrostatica en PSI (numero decimal). Buscar "HYDRO", "Hydrostatic test", "Proof test", "Test pressure" en el formulario
 - material_cuerpo: Solo la designacion del material del cuerpo/shell. Ejemplos: "SA-455", "SA-516 GR.70", "SA-285 Gr. C"
 - espesor_cuerpo_mm: Espesor del cuerpo/shell. Si esta en pulgadas, convertir a mm (1 in = 25.4 mm)
 - longitud_cuerpo_m: Longitud del cuerpo/shell. Si esta en pies/pulgadas, convertir a metros (1 ft = 0.3048 m, 1 in = 0.0254 m). Ej: 12' 7.563" = 3.850 m
-- diametro_interior_m: Diametro INTERIOR del recipiente. Buscar "(ID)" o "Inner diameter" en el formulario. Si esta en pies/pulgadas, convertir a metros. Ej: 3' 4.484" = 1.028 m
+- diametro_interior_m: Diametro INTERIOR del recipiente. Primero buscar un valor marcado con "(ID)" o "Inner diameter" en la seccion 6 del formulario. Si solo hay un valor marcado con "(OD)" (diametro exterior), calcular el interior asi: ID = OD - (2 x espesor nominal del cuerpo, que esta en la misma seccion 6). Convertir el resultado a metros. Ej con ID directo: 3' 4.484" = 1.028 m. Ej con OD: OD=40.96", espesor=0.239", ID=40.96-(2x0.239)=40.482", en metros=1.028 m
 - material_cabezales: Solo la designacion del material de los cabezales/heads. Ejemplos: "SA-285 Gr. C", "SA-516 GR.70"
 - espesor_cabezales_mm: Espesor de los cabezales/heads. Si esta en pulgadas, convertir a mm
 - fecha_certificacion: Fecha del INSPECTOR AUTORIZADO. Buscar la ULTIMA fecha "Date" en el back del U-1A, en la seccion "CERTIFICATE OF SHOP/FIELD INSPECTION", firmada por el Authorized Inspector. Las fechas en el U-1A estan en formato USA (MM/DD/YYYY). Ejemplo: "06/06/2020" en el PDF significa junio 6 de 2020 → devolver "2020-06-06". Formato final: YYYY-MM-DD
@@ -62,13 +64,13 @@ Extrae los siguientes campos combinando informacion de TODAS las imagenes y devu
 CAMPOS A EXTRAER:
 - fabricante: Solo el nombre de la empresa hasta la forma juridica. Ejemplos: "Trinity Industries de Mexico S de RL de CV", "Arcosa Industries de Mexico S. de R.L. de C.V.", "Buffalo Tank Division"
 - ano_fabricacion: Ano de fabricacion del recipiente. Buscar en "DATOS DEL PRODUCTO" o en CERTIFICATE OF COMPLIANCE. Extraer solo el ano (ej: "2015"). Si no hay fecha explicita, usar el ano de fecha_certificacion
-- asme_code_edition: Ano/edicion del codigo ASME
+- asme_code_edition: Ano/edicion del codigo ASME. Copiar el texto tal como aparece (ej: "2019", "2004 to 2006"). Si es un rango de anos, usar "to" entre los anos
 - mawp_psi: Presion maxima de trabajo. Si esta en kg/cm2, convertir a PSI (1 kg/cm2 = 14.2233 PSI). Si esta en bar, convertir (1 bar = 14.5038 PSI)
 - hydro_test_pressure_psi: Presion de prueba hidrostatica en PSI. Buscar "HYDRO", "Hydrostatic test", "Proof test", "Test pressure" en TODAS las imagenes (especialmente en el U-1A embebido, seccion 9). Mismas conversiones de unidad
 - material_cuerpo: Solo la designacion del material del cuerpo/shell. Ejemplos: "SA-455", "SA-516 GR.70", "SA-285 Gr. C"
 - espesor_cuerpo_mm: Espesor del cuerpo/shell en mm. Si ya esta en mm, dejarlo. Si esta en pulgadas, convertir (1 in = 25.4 mm)
 - longitud_cuerpo_m: Longitud del cuerpo en metros. Si ya esta en metros, dejarlo. Si esta en mm, convertir (dividir entre 1000). Si esta en pies/pulgadas, convertir (1 ft = 0.3048 m, 1 in = 0.0254 m)
-- diametro_interior_m: Diametro INTERIOR en metros. Buscar "(ID)" o "Inner diameter" o "diametro interior" en TODAS las imagenes (especialmente en el U-1A embebido, seccion 6 "Shell"). Si esta en pies/pulgadas, convertir. Ej: 3' 4.484" = 1.028 m
+- diametro_interior_m: Diametro INTERIOR en metros. Primero buscar un valor marcado con "(ID)", "Inner diameter" o "diametro interior" en TODAS las imagenes. Si solo hay "Diametro Exterior" u "(OD)", calcular el interior: ID = OD - (2 x espesor nominal del cuerpo). Convertir el resultado a metros. Ej con OD: OD=40.96", espesor=0.239", ID=40.96-(2x0.239)=40.482", en metros=1.028 m
 - material_cabezales: Solo la designacion del material de los cabezales/heads. Ejemplos: "SA-285 Gr. C", "SA-516 GR.70"
 - espesor_cabezales_mm: Espesor de los cabezales en mm
 - fecha_certificacion: Fecha de inspeccion de la pagina "FECHA DE INSPECCION" (imagen 2). Esta es la fecha correcta y vigente. Formato YYYY-MM-DD
