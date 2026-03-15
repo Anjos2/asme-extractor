@@ -67,11 +67,42 @@ class ExtractUrlRequest(BaseModel):
 class BatchExtractRequest(BaseModel):
     """Request para procesar multiples PDFs en una sola peticion.
 
-    Cada item tiene pdf_url e id_activo. Se procesan todos sin consultas
-    adicionales a Glide (se usa id_activo directamente para guardar).
+    Acepta dos formatos:
+    - Simple: {"pdf_urls": ["url1", "url2"], "auto_save": true}
+    - Avanzado: {"items": [{"pdf_url": "url1", "id_activo": "row-id"}], "auto_save": true}
+
+    auto_save a nivel de batch se aplica a todos los items (default true).
+    Cada item puede tener su propio id_activo opcional.
     """
 
-    items: list[ExtractUrlRequest]
+    items: list[ExtractUrlRequest] = []
+    pdf_urls: list[str] = []
+    auto_save: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _build_items(cls, data: dict) -> dict:
+        """Convierte pdf_urls a items y aplica auto_save global."""
+        if not isinstance(data, dict):
+            return data
+
+        batch_auto_save = data.get("auto_save", True)
+
+        # Si mandan pdf_urls (formato simple), convertir a items
+        if "pdf_urls" in data and data["pdf_urls"]:
+            urls = data["pdf_urls"]
+            if not data.get("items"):
+                data["items"] = []
+            for url in urls:
+                data["items"].append({"pdf_url": url, "auto_save": batch_auto_save})
+
+        # Aplicar auto_save global a items que no lo tengan explícito
+        if "items" in data:
+            for item in data["items"]:
+                if isinstance(item, dict) and "auto_save" not in item:
+                    item["auto_save"] = batch_auto_save
+
+        return data
 
 
 class ExtractionResponse(BaseModel):
