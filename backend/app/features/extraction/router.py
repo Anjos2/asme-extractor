@@ -579,62 +579,95 @@ async def _process_batch_item(
         item_result["serie_extraida"] = serie
         item_result["extraction"] = result.get("extraction")
 
-        # Guardar en Glide si auto_save e id_activo
-        if item.auto_save and item.id_activo:
+        # Guardar en Glide si auto_save
+        if item.auto_save and serie:
             ext = result.get("extraction", {})
-            save_data = _build_save_data(ext, serie or "", include_serie=False)
-            save_data = {k: v for k, v in save_data.items() if v is not None}
 
-            # Proteccion: solo llenar campos vacios
-            existing = tanques_cache.get(item.id_activo, {})
-            if existing:
-                original_count = len(save_data)
-                save_data = _filter_empty_fields(save_data, existing)
-                skipped_fields = original_count - len(save_data)
-                if skipped_fields:
-                    logger.info("  batch[%d] — %d campos omitidos (ya tienen valor)", index, skipped_fields)
+            if item.id_activo:
+                # CON id_activo: guardar en la fila especifica + expandir rango
+                save_data = _build_save_data(ext, serie or "", include_serie=False)
+                save_data = {k: v for k, v in save_data.items() if v is not None}
 
-            if not save_data:
-                item_result["saved"] = False
-                item_result["status"] = "skipped"
-                item_result["message"] = "Todos los campos ya tienen valor"
-                logger.info("  batch[%d] SKIP — serie=%s, todos los campos llenos (post-extraccion)", index, serie)
-                job["skipped"] += 1
+                # Proteccion: solo llenar campos vacios
+                existing = tanques_cache.get(item.id_activo, {})
+                if existing:
+                    original_count = len(save_data)
+                    save_data = _filter_empty_fields(save_data, existing)
+                    skipped_fields = original_count - len(save_data)
+                    if skipped_fields:
+                        logger.info("  batch[%d] — %d campos omitidos (ya tienen valor)", index, skipped_fields)
+
+                if not save_data:
+                    item_result["saved"] = False
+                    item_result["status"] = "skipped"
+                    item_result["message"] = "Todos los campos ya tienen valor"
+                    logger.info("  batch[%d] SKIP — serie=%s, todos los campos llenos (post-extraccion)", index, serie)
+                    job["skipped"] += 1
+                else:
+                    save_result = await save_to_glide(data=save_data, row_id=item.id_activo)
+                    item_result["saved"] = True
+                    item_result["save_action"] = save_result.get("action")
+                    item_result["status"] = "ok"
+                    logger.info("  batch[%d] OK — serie=%s, saved %d campos to %s", index, serie, len(save_data), item.id_activo)
+                    job["ok"] += 1
             else:
-                save_result = await save_to_glide(data=save_data, row_id=item.id_activo)
-                item_result["saved"] = True
-                item_result["save_action"] = save_result.get("action")
-                item_result["status"] = "ok"
-                logger.info("  batch[%d] OK — serie=%s, saved %d campos to %s", index, serie, len(save_data), item.id_activo)
-                job["ok"] += 1
+                # POR QUÉ: Sin id_activo, Javier solo manda el pdf_url.
+                # El script busca el tanque por serie en Glide. Si existe lo actualiza,
+                # si no existe lo crea. Si es un rango, save_to_glide expande automaticamente.
+                save_data = _build_save_data(ext, serie, include_serie=True)
+                save_data = {k: v for k, v in save_data.items() if v is not None}
 
-                # POR QUÉ: Cuando el PDF cubre un rango de seriales (ej: H2004088 thru H2004105),
-                # el bloque anterior solo actualiza el id_activo (1 fila). Este bloque
-                # expande el rango y actualiza/crea las filas restantes buscando por serie en Glide.
-                # Misma logica que /extract-url para que el batch sea consistente.
-                if result.get("is_range") and serie:
-                    serials = expand_serial_range(serie)
-                    if len(serials) > 1:
-                        logger.info("  batch[%d] — rango detectado: %d seriales, expandiendo", index, len(serials))
-                        range_save_data = _build_save_data(ext, serie, include_serie=True)
-                        range_save_data = {k: v for k, v in range_save_data.items() if v is not None}
-                        try:
-                            range_result = await save_to_glide(data=range_save_data)
-                            item_result["range_saved"] = True
-                            item_result["range_result"] = range_result
-                            logger.info(
-                                "  batch[%d] rango OK — %d creados, %d actualizados",
-                                index, range_result.get("created", 0), range_result.get("updated", 0),
-                            )
-                        except Exception as e:
-                            logger.error("  batch[%d] rango error: %s", index, e)
-                            item_result["range_saved"] = False
-                            item_result["range_result"] = {"error": str(e)}
-        else:
+                try:
+                    save_result = await save_to_glide(data=save_data)
+                    item_result["saved"] = True
+                    item_result["save_action"] = save_result.get("action")
+                    item_result["status"] = "ok"
+                    count = save_result.get("count", 1)
+                    logger.info("  batch[%d] OK — serie=%s, saved by serie (%d tanques)", index, serie, count)
+                    job["ok"] += 1
+                    if save_result.get("action") == "range":
+                        item_result["range_saved"] = True
+                        item_result["range_result"] = save_result
+                except Exception as e:
+                    logger.error("  batch[%d] save error: %s", index, e)
+                    item_result["saved"] = False
+                    item_result["status"] = "error"
+                    item_result["error"] = str(e)
+                    job["errors"] += 1
+
+            # Expandir rango si tiene id_activo y el PDF cubre multiples seriales
+            # POR QUÉ: Con id_activo, el bloque anterior solo actualiza 1 fila.
+            # Este bloque crea/actualiza las filas restantes del rango buscando por serie.
+            # Sin id_activo, save_to_glide ya maneja el rango completo internamente.
+            if item.id_activo and result.get("is_range") and serie:
+                serials = expand_serial_range(serie)
+                if len(serials) > 1:
+                    logger.info("  batch[%d] — rango detectado: %d seriales, expandiendo", index, len(serials))
+                    range_save_data = _build_save_data(ext, serie, include_serie=True)
+                    range_save_data = {k: v for k, v in range_save_data.items() if v is not None}
+                    try:
+                        range_result = await save_to_glide(data=range_save_data)
+                        item_result["range_saved"] = True
+                        item_result["range_result"] = range_result
+                        logger.info(
+                            "  batch[%d] rango OK — %d creados, %d actualizados",
+                            index, range_result.get("created", 0), range_result.get("updated", 0),
+                        )
+                    except Exception as e:
+                        logger.error("  batch[%d] rango error: %s", index, e)
+                        item_result["range_saved"] = False
+                        item_result["range_result"] = {"error": str(e)}
+        elif not item.auto_save:
             item_result["saved"] = False
             item_result["status"] = "extracted"
             logger.info("  batch[%d] OK — serie=%s (no auto_save)", index, serie)
             job["ok"] += 1
+        else:
+            item_result["saved"] = False
+            item_result["status"] = "error"
+            item_result["error"] = "No se pudo extraer numero de serie del PDF"
+            logger.error("  batch[%d] error: no se extrajo serie", index)
+            job["errors"] += 1
 
     except Exception as e:
         logger.error("  batch[%d] error: %s", index, e)

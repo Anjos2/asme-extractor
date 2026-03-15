@@ -45,7 +45,7 @@ TANQUE_COLUMNS = {
 
 DOCUMENTO_COLUMNS = {
     "tanque_row_id": "eYLsX",
-    "pdf_urls": "jT8nO",
+    "pdf_urls": "Ph6H3",
 }
 
 # Inverso: codigo Glide → nombre legible
