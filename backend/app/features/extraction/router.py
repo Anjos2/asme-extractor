@@ -1,23 +1,29 @@
 """
 Endpoints API para extraccion ASME, guardado en Glide, gestion de tanques y backlog.
 - Finalidad: Capa HTTP que recibe requests y delega a service.py, glide/repository.py y backlog.py.
-  Endpoints: /extract, /extract-url (con auto_save + id_activo), /batch/extract (masivo),
-  /save, /tanques, /tanques/{serie}/check, /batch/process, /backlog, /backlog/summary.
+  Endpoints: /extract, /extract-url (con auto_save + id_activo), /batch/extract (masivo async),
+  /batch/status/{job_id}, /save, /tanques, /tanques/{serie}/check, /batch/process,
+  /backlog, /backlog/summary.
   Proteccion "solo campos vacios": tanto /extract-url como /batch/extract verifican
   datos existentes en Glide antes de guardar, solo llenando campos que estan vacios.
-  Batch optimizado: UNA sola query a Glide al inicio para cache de todos los tanques.
+  Batch async: respuesta inmediata con job_id, procesamiento paralelo en background,
+  early skip para tanques ya procesados, status endpoint para monitorear progreso.
   Todos protegidos con API key via auth.py.
 - Consume: service.py (extract, save, check, expand_serial_range), schemas.py (request/response),
-  validators.py (PDFTypeError), config.py (MAX_PDF_SIZE_MB), auth.py (verify_api_key),
+  validators.py (PDFTypeError), config.py (settings), auth.py (verify_api_key),
   glide/repository.py (list, batch, get_tanque_by_row_id, get_all_tanques_by_row_id),
   backlog.py (read_backlog, get_backlog_summary)
   extract-url expande rangos automaticamente: actualiza id_activo + crea/actualiza resto por serie.
 - Consumido por: main.py (registro de router)
 """
 
+import asyncio
 import json
 import logging
+import math
+import time
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
@@ -92,6 +98,28 @@ def _build_save_data(ext: dict, serie: str, include_serie: bool = True) -> dict:
     if include_serie:
         save_data["serie"] = serie
     return save_data
+
+
+# POR QUÉ: Los 12 campos que el LLM extrae y se guardan en Glide.
+# Si TODOS tienen valor, no hay necesidad de descargar/extraer el PDF de nuevo.
+_EXTRACTION_FIELDS = [
+    "fabricante", "ano_fabricacion", "asme_code_edition", "mawp_psi",
+    "hydro_test_pressure_psi", "material_cuerpo", "espesor_cuerpo_mm",
+    "longitud_cuerpo_m", "diametro_interior_m", "material_cabezales",
+    "espesor_cabezales_mm", "fecha_certificacion",
+]
+
+
+def _all_fields_filled(existing: dict) -> bool:
+    """Verifica si un tanque ya tiene TODOS los campos de extraccion llenos."""
+    return all(existing.get(field) for field in _EXTRACTION_FIELDS)
+
+
+# POR QUÉ: Dict en memoria para rastrear el progreso de batch jobs.
+# Cada job tiene status, progreso y resultados parciales. Se limpia automaticamente
+# despues de 1 hora para no acumular memoria indefinidamente.
+_batch_jobs: dict[str, dict] = {}
+_BATCH_JOB_TTL_SECONDS = 3600
 
 
 @router.post("/extract", response_model=ExtractionResponse)
@@ -395,12 +423,13 @@ async def batch_process(tanque_row_ids: list[str]):
 
 @router.post("/batch/extract")
 async def batch_extract(raw_request: Request):
-    """Procesa multiples PDFs en una sola peticion.
+    """Procesa multiples PDFs de forma asincrona y en paralelo.
 
-    Recibe lista de items con pdf_url + id_activo. Descarga, extrae y guarda
-    cada PDF directamente en el id_activo indicado.
-    Proteccion: solo llena campos vacios (no sobrescribe datos existentes).
-    Optimizacion: UNA sola query a Glide al inicio para obtener todos los tanques.
+    Responde INMEDIATAMENTE con un job_id. El procesamiento ocurre en background.
+    Cada PDF se procesa en paralelo (hasta MAX_CONCURRENT_EXTRACTIONS simultaneos).
+    Early skip: si un tanque ya tiene todos los campos llenos, no descarga ni extrae.
+    Los resultados se guardan en Glide via auto_save conforme cada PDF termina.
+    Consultar progreso con GET /batch/status/{job_id}.
 
     Body JSON:
         {"items": [{"pdf_url": "...", "id_activo": "...", "auto_save": true}, ...]}
@@ -421,89 +450,205 @@ async def batch_extract(raw_request: Request):
     if not batch_req.items:
         raise HTTPException(400, "items no puede estar vacio")
 
-    logger.info("POST /batch/extract — %d PDFs a procesar", len(batch_req.items))
-    max_size = settings.MAX_PDF_SIZE_MB * 1024 * 1024
+    total = len(batch_req.items)
+    max_concurrent = settings.MAX_CONCURRENT_EXTRACTIONS
+    avg_time = settings.AVG_EXTRACTION_TIME_SECONDS
+    estimated_seconds = math.ceil(total / max_concurrent) * avg_time
+
+    job_id = str(uuid4())
+    job = {
+        "job_id": job_id,
+        "status": "processing",
+        "total": total,
+        "completed": 0,
+        "ok": 0,
+        "skipped": 0,
+        "errors": 0,
+        "results": [],
+        "started_at": time.time(),
+        "estimated_seconds": estimated_seconds,
+    }
+    _batch_jobs[job_id] = job
+
+    logger.info(
+        "POST /batch/extract — job=%s, %d PDFs, estimated=%ds, max_concurrent=%d",
+        job_id, total, estimated_seconds, max_concurrent,
+    )
+
+    # POR QUÉ: asyncio.create_task lanza el procesamiento en background.
+    # El endpoint responde inmediatamente al cliente (<1s), evitando timeout de Cloudflare.
+    asyncio.create_task(_run_batch(job_id, batch_req.items))
+
+    return {
+        "job_id": job_id,
+        "status": "processing",
+        "total": total,
+        "estimated_seconds": estimated_seconds,
+        "estimated_minutes": round(estimated_seconds / 60, 1),
+        "message": f"Procesando {total} PDFs. Tiempo estimado: ~{math.ceil(estimated_seconds / 60)} minutos",
+    }
+
+
+async def _run_batch(job_id: str, items: list) -> None:
+    """Orquesta el procesamiento paralelo de un batch con semaforo de concurrencia."""
+    job = _batch_jobs[job_id]
 
     # UNA sola query a Glide: obtener todos los tanques indexados por row_id
     tanques_cache: dict[str, dict] = {}
     try:
         tanques_cache = await get_all_tanques_by_row_id()
-        logger.info("POST /batch/extract — cache de %d tanques cargado", len(tanques_cache))
+        logger.info("batch[%s] cache de %d tanques cargado", job_id[:8], len(tanques_cache))
     except Exception as e:
-        logger.warning("POST /batch/extract — no se pudo cargar cache de tanques: %s", e)
+        logger.warning("batch[%s] no se pudo cargar cache: %s", job_id[:8], e)
 
-    results = []
-    for i, item in enumerate(batch_req.items):
-        item_result = {"pdf_url": item.pdf_url, "id_activo": item.id_activo}
-        try:
-            # Descargar PDF
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.get(item.pdf_url)
-                response.raise_for_status()
+    semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_EXTRACTIONS)
 
-            pdf_bytes = response.content
-            if len(pdf_bytes) > max_size:
-                item_result["status"] = "error"
-                item_result["error"] = f"PDF excede {settings.MAX_PDF_SIZE_MB}MB"
-                results.append(item_result)
-                continue
+    async def _process_with_semaphore(index: int, item) -> None:
+        async with semaphore:
+            await _process_batch_item(job_id, index, item, tanques_cache)
 
-            # Derivar filename de la URL
-            path = urlparse(item.pdf_url).path
-            filename = path.rsplit("/", 1)[-1] if "/" in path else "document.pdf"
-            if not filename.lower().endswith(".pdf"):
-                filename += ".pdf"
+    tasks = [_process_with_semaphore(i, item) for i, item in enumerate(items)]
+    await asyncio.gather(*tasks)
 
-            # Extraer datos
-            result = await extract_from_pdf(pdf_bytes=pdf_bytes, filename=filename)
-            serie = result.get("extraction", {}).get("serial_number")
-            item_result["pdf_type"] = result.get("pdf_type")
-            item_result["serie_extraida"] = serie
-            item_result["extraction"] = result.get("extraction")
+    job["status"] = "completed"
+    elapsed = round(time.time() - job["started_at"], 1)
+    logger.info(
+        "batch[%s] DONE — %d total, %d ok, %d skipped, %d errors, %.1fs elapsed",
+        job_id[:8], job["total"], job["ok"], job["skipped"], job["errors"], elapsed,
+    )
 
-            # Guardar directamente si auto_save e id_activo
-            if item.auto_save and item.id_activo:
-                ext = result.get("extraction", {})
-                save_data = _build_save_data(ext, serie or "", include_serie=False)
-                save_data = {k: v for k, v in save_data.items() if v is not None}
+    # POR QUÉ: Solo limpiar jobs COMPLETADOS con >1 hora de antiguedad.
+    # Si un job largo (500 PDFs, ~67 min) sigue en "processing", NO se borra
+    # para que Javier pueda seguir consultando el progreso.
+    now = time.time()
+    expired = [
+        jid for jid, j in _batch_jobs.items()
+        if j["status"] == "completed" and now - j["started_at"] > _BATCH_JOB_TTL_SECONDS
+    ]
+    for jid in expired:
+        del _batch_jobs[jid]
 
-                # Proteccion: solo llenar campos vacios
-                existing = tanques_cache.get(item.id_activo, {})
-                if existing:
-                    original_count = len(save_data)
-                    save_data = _filter_empty_fields(save_data, existing)
-                    skipped = original_count - len(save_data)
-                    if skipped:
-                        logger.info("  batch[%d] — %d campos omitidos (ya tienen valor)", i, skipped)
 
-                if not save_data:
-                    item_result["saved"] = False
-                    item_result["status"] = "skipped"
-                    item_result["message"] = "Todos los campos ya tienen valor"
-                    logger.info("  batch[%d] SKIP — serie=%s, todos los campos llenos", i, serie)
-                else:
-                    save_result = await save_to_glide(data=save_data, row_id=item.id_activo)
-                    item_result["saved"] = True
-                    item_result["save_action"] = save_result.get("action")
-                    item_result["status"] = "ok"
-                    logger.info("  batch[%d] OK — serie=%s, saved %d campos to %s", i, serie, len(save_data), item.id_activo)
-            else:
+async def _process_batch_item(
+    job_id: str, index: int, item, tanques_cache: dict[str, dict],
+) -> None:
+    """Procesa un solo PDF del batch: early skip → descarga → extraccion → guardado."""
+    job = _batch_jobs[job_id]
+    item_result = {"pdf_url": item.pdf_url, "id_activo": item.id_activo}
+    max_size = settings.MAX_PDF_SIZE_MB * 1024 * 1024
+
+    try:
+        # EARLY SKIP: verificar si el tanque ya tiene todos los campos llenos
+        # ANTES de descargar o llamar al LLM (ahorra tokens y tiempo)
+        if item.auto_save and item.id_activo:
+            existing = tanques_cache.get(item.id_activo, {})
+            if existing and _all_fields_filled(existing):
+                item_result["status"] = "skipped"
                 item_result["saved"] = False
-                item_result["status"] = "extracted"
-                logger.info("  batch[%d] OK — serie=%s (no auto_save)", i, serie)
+                item_result["message"] = "Todos los campos ya tienen valor"
+                logger.info("  batch[%d] EARLY_SKIP — id_activo=%s, todos los campos ya llenos (sin descarga ni extraccion)", index, item.id_activo)
+                job["results"].append(item_result)
+                job["completed"] += 1
+                job["skipped"] += 1
+                return
 
-        except Exception as e:
-            logger.error("  batch[%d] error: %s", i, e)
+        # Descargar PDF
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(item.pdf_url)
+            response.raise_for_status()
+
+        pdf_bytes = response.content
+        if len(pdf_bytes) > max_size:
             item_result["status"] = "error"
-            item_result["error"] = str(e)
+            item_result["error"] = f"PDF excede {settings.MAX_PDF_SIZE_MB}MB"
+            job["results"].append(item_result)
+            job["completed"] += 1
+            job["errors"] += 1
+            return
 
-        results.append(item_result)
+        # Derivar filename de la URL
+        path = urlparse(item.pdf_url).path
+        filename = path.rsplit("/", 1)[-1] if "/" in path else "document.pdf"
+        if not filename.lower().endswith(".pdf"):
+            filename += ".pdf"
 
-    ok_count = sum(1 for r in results if r["status"] == "ok")
-    skip_count = sum(1 for r in results if r.get("status") == "skipped")
-    err_count = sum(1 for r in results if r["status"] == "error")
-    logger.info("POST /batch/extract DONE — %d total, %d ok, %d skipped, %d errors", len(results), ok_count, skip_count, err_count)
-    return {"results": results, "total": len(results), "ok": ok_count, "skipped": skip_count, "errors": err_count}
+        # Extraer datos con LLM
+        result = await extract_from_pdf(pdf_bytes=pdf_bytes, filename=filename)
+        serie = result.get("extraction", {}).get("serial_number")
+        item_result["pdf_type"] = result.get("pdf_type")
+        item_result["serie_extraida"] = serie
+        item_result["extraction"] = result.get("extraction")
+
+        # Guardar en Glide si auto_save e id_activo
+        if item.auto_save and item.id_activo:
+            ext = result.get("extraction", {})
+            save_data = _build_save_data(ext, serie or "", include_serie=False)
+            save_data = {k: v for k, v in save_data.items() if v is not None}
+
+            # Proteccion: solo llenar campos vacios
+            existing = tanques_cache.get(item.id_activo, {})
+            if existing:
+                original_count = len(save_data)
+                save_data = _filter_empty_fields(save_data, existing)
+                skipped_fields = original_count - len(save_data)
+                if skipped_fields:
+                    logger.info("  batch[%d] — %d campos omitidos (ya tienen valor)", index, skipped_fields)
+
+            if not save_data:
+                item_result["saved"] = False
+                item_result["status"] = "skipped"
+                item_result["message"] = "Todos los campos ya tienen valor"
+                logger.info("  batch[%d] SKIP — serie=%s, todos los campos llenos (post-extraccion)", index, serie)
+                job["skipped"] += 1
+            else:
+                save_result = await save_to_glide(data=save_data, row_id=item.id_activo)
+                item_result["saved"] = True
+                item_result["save_action"] = save_result.get("action")
+                item_result["status"] = "ok"
+                logger.info("  batch[%d] OK — serie=%s, saved %d campos to %s", index, serie, len(save_data), item.id_activo)
+                job["ok"] += 1
+        else:
+            item_result["saved"] = False
+            item_result["status"] = "extracted"
+            logger.info("  batch[%d] OK — serie=%s (no auto_save)", index, serie)
+            job["ok"] += 1
+
+    except Exception as e:
+        logger.error("  batch[%d] error: %s", index, e)
+        item_result["status"] = "error"
+        item_result["error"] = str(e)
+        job["errors"] += 1
+
+    job["results"].append(item_result)
+    job["completed"] += 1
+
+
+@router.get("/batch/status/{job_id}")
+async def batch_status(job_id: str):
+    """Consulta el progreso de un batch en procesamiento.
+
+    Retorna status (processing/completed), progreso, tiempo transcurrido,
+    estimado restante, y resultados parciales.
+    """
+    job = _batch_jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, f"Job {job_id} no encontrado. Los jobs expiran despues de 1 hora.")
+
+    elapsed = round(time.time() - job["started_at"], 1)
+    remaining = max(0, job["estimated_seconds"] - elapsed) if job["status"] == "processing" else 0
+
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "total": job["total"],
+        "completed": job["completed"],
+        "ok": job["ok"],
+        "skipped": job["skipped"],
+        "errors": job["errors"],
+        "elapsed_seconds": elapsed,
+        "estimated_remaining_seconds": round(remaining, 1),
+        "results": job["results"],
+    }
 
 
 @router.get("/backlog")

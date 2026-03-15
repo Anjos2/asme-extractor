@@ -3,6 +3,7 @@ Prompts para el LLM vision segun tipo de PDF (Type 1 U-1A / Type 2 Certificado).
 - Finalidad: Define SYSTEM_PROMPT (rol experto ASME) y prompts especificos
   por tipo de PDF con campos, conversiones de unidades y reglas de extraccion.
   Incluye reglas de normalizacion: fabricante sin direccion, materiales sin prefijo "ASME".
+  fecha_certificacion: fecha del INSPECTOR (no del fabricante), formato USA MM/DD/YYYY.
 - Consume: nada (solo constantes string)
 - Consumido por: llm_extractor.py (selecciona prompt segun pdf_type)
 """
@@ -29,7 +30,7 @@ CAMPOS A EXTRAER:
 - diametro_interior_m: Diametro INTERIOR del recipiente. Buscar "(ID)" o "Inner diameter" en el formulario. Si esta en pies/pulgadas, convertir a metros. Ej: 3' 4.484" = 1.028 m
 - material_cabezales: Solo la designacion del material de los cabezales/heads. Ejemplos: "SA-285 Gr. C", "SA-516 GR.70"
 - espesor_cabezales_mm: Espesor de los cabezales/heads. Si esta en pulgadas, convertir a mm
-- fecha_certificacion: Fecha de certificacion del FABRICANTE (campo "Date" en CERTIFICATE OF COMPLIANCE). Formato YYYY-MM-DD
+- fecha_certificacion: Fecha del INSPECTOR AUTORIZADO. Buscar la ULTIMA fecha "Date" en el back del U-1A, en la seccion "CERTIFICATE OF SHOP/FIELD INSPECTION", firmada por el Authorized Inspector. Las fechas en el U-1A estan en formato USA (MM/DD/YYYY). Ejemplo: "06/06/2020" en el PDF significa junio 6 de 2020 → devolver "2020-06-06". Formato final: YYYY-MM-DD
 - serial_number: Numero(s) de serie del fabricante
 - vessel_type: "Horizontal" o "Vertical"
 
@@ -45,16 +46,16 @@ REGLAS:
 - Si un campo no se encuentra, pon null
 - Todos los espesores finales en mm, longitudes/diametros en metros, presiones en PSI
 - Para raw_*, copia el texto exacto como aparece en el documento
+- IMPORTANTE: Las fechas en el formulario U-1A estan en formato USA (MM/DD/YYYY). El primer numero es el MES, el segundo es el DIA
 - No inventes datos. Si no es legible, pon null
 - Responde SOLO con el JSON, sin texto adicional"""
 
 TYPE_2_PROMPT = """Analiza estas imagenes de un Certificado de Inspeccion de recipiente a presion.
 
-Las imagenes son (en orden):
-1. Pagina de "DATOS DEL PRODUCTO" (puede estar en espanol con unidades metricas)
-2. Pagina de "FECHA DE INSPECCION" (contiene la fecha de certificacion correcta)
-3. Formulario ASME U-1A embebido (si existe) — front
-4. Formulario ASME U-1A embebido (si existe) — back
+Las imagenes incluyen (pueden ser 3, 4, 5 o mas):
+- Pagina de "DATOS DEL PRODUCTO" (en espanol con unidades metricas)
+- Pagina de "FECHA DE INSPECCION" (contiene la fecha de certificacion correcta)
+- Paginas del formulario ASME U-1A embebido (si existe en el certificado)
 
 Extrae los siguientes campos combinando informacion de TODAS las imagenes y devuelve SOLO un JSON valido (sin markdown, sin ```).
 
@@ -84,7 +85,7 @@ VALORES RAW (antes de conversion):
 
 REGLAS:
 - Combina datos de TODAS las imagenes. La pagina de datos tiene info en metrico, el U-1A en imperial
-- IMPORTANTE: fecha_certificacion DEBE venir de la pagina de "FECHA DE INSPECCION" (imagen 2)
+- IMPORTANTE: fecha_certificacion viene de la pagina de "FECHA DE INSPECCION"
 - Si un campo no se encuentra en ninguna imagen, pon null
 - Presiones finales en PSI, espesores en mm, longitudes/diametros en metros
 - Para raw_*, copia el texto exacto como aparece

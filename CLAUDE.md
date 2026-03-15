@@ -1,4 +1,4 @@
-# VeaHome Demo - Guía para Claude Code
+# ASME Pressure Vessel Extractor - Guía para Claude Code
 
 ## Identidad
 
@@ -14,11 +14,10 @@ Aplicas: **SOLID, DRY, KISS, YAGNI**.
 
 ```
 memoria/
-├── arquitectura.yaml          # Stack, datos, relaciones, tools del agente
+├── arquitectura.yaml          # Stack, datos, relaciones, endpoints
 ├── servidor.yaml              # Infra, Docker, redes, IPs, tokens
-├── openai_agents_sdk.yaml     # SDK 0.8.0, tools, hooks, sessions
-├── negocio.yaml               # Referencia del proyecto Loc Studio
-├── checklist-refactoring.md   # CHECKLIST ACTIVO: Refactoring Glide + Nuevo UX
+├── checklist-extraction-robusta.md  # CHECKLIST ACTIVO: Pipeline robusto + Backlog
+├── checklist-refactoring.md   # COMPLETADO: Refactoring Glide + Nuevo UX
 └── diagrama.html              # Diagrama visual interactivo de arquitectura
 ```
 
@@ -34,16 +33,8 @@ memoria/
 
 ## Contexto del Proyecto
 
-### Sub-proyecto 1: VeaHome Demo Agent
-**Agente IA para consultas de activos industriales.**
-- **Cliente**: VeaHome / Corporación Primax
-- **Datos**: 3 tablas CSV de Glide (5 plantas, 73 activos, 159 documentos)
-- **Stack**: Python 3.13 + FastAPI + OpenAI Agents SDK 0.8.0 | Next.js 16 + Tailwind
-- **BD**: SQLite (demo)
-- **Modelo**: gpt-5-mini
-
-### Sub-proyecto 2: ASME Pressure Vessel Extractor
-**App web para extraer datos de PDFs ASME de recipientes a presión.**
+### ASME Pressure Vessel Extractor
+**API para extraer datos de PDFs ASME de recipientes a presión via Vision AI.**
 - **Cliente**: VeaHome / Corporación Primax
 - **Función**: Upload PDF → Vision AI extrae 12 campos → Glide API
 - **Stack**: Python 3.13 + FastAPI + gpt-5-mini vision | HTML/CSS/JS vanilla
@@ -128,39 +119,6 @@ api_url = os.getenv('NEXT_PUBLIC_API_URL', 'http://localhost:8000')
 
 ---
 
-## Arquitectura del Agente
-
-- **Agente único** con 4 tools de solo lectura (no multi-agente)
-- `query_plantas`: Buscar plantas por nombre/ubicación
-- `query_activos`: Buscar activos por tipo/planta/código
-- `query_documentos`: Buscar documentos por tipo/planta/activo/vigencia
-- `query_cross_tables`: Consulta cruzada JOIN de 3 tablas (herramienta clave)
-- `parallel_tool_calls=True` para máximo rendimiento
-- Session con `SQLiteSession` para historial de conversación
-- `RunHooks` (VeaHomeHooks) para logging de tools
-
----
-
-## Datos CSV (de Glide)
-
-**Relaciones**:
-```
-PLANTAS.Row ID → ACTIVOS.ID PLANTA
-PLANTAS.Row ID → DOCUMENTOS.ID PLANTA
-ACTIVOS.Row ID → DOCUMENTOS.ID DE ACTIVO
-```
-
-**Vigencia**: Un documento es vigente si `vigencia_indeterminada=true` O `fecha_vencimiento >= hoy`
-
-**Cuidados al parsear**:
-- Encoding: UTF-8 con BOM (`utf-8-sig`)
-- Fechas: formato `d/m/yyyy, HH:MM:SS`
-- Booleans: string `"true"/"false"`
-- Comillas dobles anidadas en CSV
-- Campos vacíos → NULL
-
----
-
 ## Deploy / Rebuild
 
 Todo rebuild sigue este flujo:
@@ -168,10 +126,8 @@ Todo rebuild sigue este flujo:
 ```
 1. git push origin main          # Push cambios a GitHub
 2. SSH al servidor               # Credenciales en memoria/servidor.yaml
-3. cd /root/veahome-demo && git pull   # Pull cambios
-4. docker build -t veahome-backend:latest ./backend
-5. docker build -t veahome-frontend:latest ./frontend
-6. docker stack deploy -c docker-compose.prod.yml veahome
+3. cd /root/asme-extractor && git pull   # Pull cambios
+4. ./deploy.sh --build --force   # Build + deploy Docker stack
 ```
 
 **Credenciales (token GitHub, IP servidor, SSH)** → viven exclusivamente en `memoria/servidor.yaml`

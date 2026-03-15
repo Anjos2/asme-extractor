@@ -1,6 +1,7 @@
 """
 Punto de entrada de la aplicacion FastAPI (API-only, sin frontend).
-- Finalidad: Configura app, registra routers, maneja lifecycle. GET / redirige a /docs.
+- Finalidad: Configura app, registra routers, maneja lifecycle.
+  GET / redirige a /docs. GET /health (sin prefijo, sin auth) para monitoreo externo.
 - Consume: config.py (settings), features/extraction/router.py (endpoints API)
 - Consumido por: Dockerfile (uvicorn app.main:app), docker-compose
 """
@@ -102,8 +103,9 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 app.include_router(extraction_router)
 
 
-@app.get("/api/health")
+@app.get("/health")
 async def health_check():
+    """Health check publico, sin auth. Para Traefik, Cloudflare, load balancers, monitors."""
     return {"status": "ok", "version": settings.APP_VERSION}
 
 
